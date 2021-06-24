@@ -7,45 +7,35 @@ use serde::{Deserialize, Serialize};
 use tokio::signal;
 use tokio::task;
 
+use crate::server::config::RegionConfig;
+
 #[derive(Deserialize,Serialize)]
 pub struct GroupResult {
     pub name: String,
     pub working: bool
 }
 
-pub async fn launch(region_name: &str) {
+pub async fn launch(base_url: String, token: String, region_name: String) {
+    
+    let is_ending = Arc::new(AtomicBool::new(false));
+    let is_ending_task = is_ending.clone();
 
-    let terminate = Arc::new(AtomicBool::new(false));
-
-    let body = reqwest::get(format!("http://localhost:3030/api/v1/relay/{}", region_name))
-        .await.unwrap_or_else(|err| {
-            eprintln!("Could not fetch configuration from server: {}", err);
-            std::process::exit(1);
-        })
-        .text()
-        .await.unwrap_or_else(|err| {
-            eprintln!("Could not decode configuration from server: {}", err);
-            std::process::exit(1);
-        });
-    let region_config: crate::server::config::RegionConfig = serde_json::from_str(&body).unwrap();
-    println!("{}", region_config.name);
-
-    let scheduler_terminate = terminate.clone();
-    let update_route = format!("http://localhost:3030/api/v1/relay/{}", region_name);
-    let scheduler_handle = task::spawn(async move {
+    let scheduler_task = task::spawn(async move {
         
+        let region_config = fetch_region_conf(&base_url, &token, &region_name).await;
+
         println!("Spawning relay");
         loop {
 
-            if scheduler_terminate.load(Ordering::Relaxed) {
+            if is_ending_task.load(Ordering::Relaxed) {
                 break;
             }
             
             let mut group_results: Vec<GroupResult> = vec![];
-            for group in region_config.groups.iter() {
+            for group in &region_config.groups {
     
                 let mut working = true;
-                for test in group.tests.iter() {
+                for test in &group.tests {
 
                     let test_result = execute_test(test).await;
                     if test_result == false {
@@ -56,14 +46,10 @@ pub async fn launch(region_name: &str) {
                 group_results.push(GroupResult {
                     name: group.name.clone(),
                     working
-                })
+                });
             }
             
-            let client = reqwest::Client::new();
-            client.put(&update_route)
-                .body(serde_json::to_string(&group_results).unwrap())
-                .send()
-                .await.unwrap();
+            update_region_state(&base_url, &token, &region_name, group_results).await;
 
             sleep(Duration::from_secs(5));
         }
@@ -72,9 +58,47 @@ pub async fn launch(region_name: &str) {
 
     signal::ctrl_c().await.expect("Should handle CTRL+C");
 
-    terminate.store(true, Ordering::Relaxed);
+    is_ending.store(true, Ordering::Relaxed);
+    scheduler_task.await.unwrap()
+}
 
-    scheduler_handle.await.expect("Should end scheduler task");
+async fn fetch_region_conf(base_url: &str, token: &str, region_name: &str) -> RegionConfig {
+
+    let config_route = format!("{}/api/v1/relay/{}", base_url, region_name);
+    let authorization_header = format!("Bearer {}", token);
+
+    let http_client = reqwest::Client::new();
+    let body = http_client.get(&config_route)
+        .header("Content-Type", "application/json")
+        .header("Authorization", &authorization_header)
+        .send()
+        .await.unwrap_or_else(|err| {
+            eprintln!("Could not fetch configuration from server: {}", err);
+            std::process::exit(1);
+        })
+        .text()
+        .await.unwrap_or_else(|err| {
+            eprintln!("Could not decode configuration from server: {}", err);
+            std::process::exit(1);
+        });
+    let region_config: RegionConfig = serde_json::from_str(&body).unwrap();
+    println!("{}", region_config.name);
+
+    region_config
+}
+
+async fn update_region_state(base_url: &str, token: &str, region_name: &str, group_results: Vec<GroupResult>) -> () {
+
+    let update_route = format!("{}/api/v1/relay/{}", base_url, region_name);
+    let authorization_header = format!("Bearer {}", token);
+
+    let http_client = reqwest::Client::new();
+    http_client.put(&update_route)
+        .header("Content-Type", "application/json")
+        .header("Authorization", &authorization_header)
+        .body(serde_json::to_string(&group_results).unwrap())
+        .send()
+        .await.unwrap();
 }
 
 async fn execute_test(test: &str) -> bool {

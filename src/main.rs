@@ -23,8 +23,12 @@ async fn main() {
         },
         ("relay", Some(relay_matches)) => {
 
+            // TODO
+            let base_url = "http://localhost:3030".to_string();
+            let token = "secret".to_string();
+
             match relay_matches.value_of("region") {
-                Some(region_name) => relay::relay::launch(region_name).await,
+                Some(region_name) => relay::relay::launch(base_url, token,region_name.to_string()).await,
                 None => {
                     eprintln!("Expected relay region");
                     std::process::exit(1)

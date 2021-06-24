@@ -177,13 +177,13 @@ impl MemoryStorage {
             updated_at
         });
 
-        /*for impacted_group in &self.region_metadata.get(region).unwrap().linked_groups {
+        for impacted_group in &self.region_metadata.get(region).unwrap().linked_groups {
 
             &self.group_storage.insert(impacted_group.to_string(), GroupStatus {
                 is_working: false,
                 updated_at: Utc::now()
             });
-        }*/
+        }
 
         self.incidents.push(IncidentRecord {
             message: format!("Region {} is DOWN", region),
