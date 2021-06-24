@@ -1,0 +1,372 @@
+{
+  "__inputs": [],
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "8.0.3"
+    },
+    {
+      "type": "panel",
+      "id": "table",
+      "name": "Table",
+      "version": ""
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": null,
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "displayMode": "auto"
+          },
+          "mappings": [
+            {
+              "options": {
+                "down": {
+                  "color": "red",
+                  "index": 2,
+                  "text": "Region DOWN"
+                },
+                "initial": {
+                  "color": "blue",
+                  "index": 0,
+                  "text": "Unknown"
+                },
+                "up": {
+                  "color": "green",
+                  "index": 1,
+                  "text": "Region UP"
+                },
+                "warn": {
+                  "color": "orange",
+                  "index": 3,
+                  "text": "Region UNSTABLE"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
+            "properties": [
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_update"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "last_update"
+          }
+        ]
+      },
+      "pluginVersion": "8.0.3",
+      "targets": [
+        {
+          "cacheDurationSeconds": 0,
+          "fields": [
+            {
+              "jsonPath": "$.regions[*].name"
+            },
+            {
+              "jsonPath": "$.regions[*].status",
+              "name": "",
+              "type": "string"
+            },
+            {
+              "jsonPath": "$.regions[*].last_update",
+              "name": "",
+              "type": "time"
+            }
+          ],
+          "method": "GET",
+          "queryParams": "",
+          "refId": "A",
+          "urlPath": "/api/v1/analytics"
+        }
+      ],
+      "title": "Region states",
+      "type": "table"
+    },
+    {
+      "datasource": null,
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "displayMode": "auto"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "is_working"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "match": "true",
+                      "result": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "Group OK"
+                      }
+                    },
+                    "type": "special"
+                  },
+                  {
+                    "options": {
+                      "match": "false",
+                      "result": {
+                        "color": "red",
+                        "index": 1,
+                        "text": "Group FAILED"
+                      }
+                    },
+                    "type": "special"
+                  }
+                ]
+              },
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_update"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 3,
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "last_update"
+          }
+        ]
+      },
+      "pluginVersion": "8.0.3",
+      "targets": [
+        {
+          "cacheDurationSeconds": 0,
+          "fields": [
+            {
+              "jsonPath": "$.groups[*].name"
+            },
+            {
+              "jsonPath": "$.groups[*].is_working",
+              "name": "",
+              "type": "string"
+            },
+            {
+              "jsonPath": "$.groups[*].last_update",
+              "name": "",
+              "type": "time"
+            }
+          ],
+          "method": "GET",
+          "queryParams": "",
+          "refId": "A",
+          "urlPath": "/api/v1/analytics"
+        }
+      ],
+      "title": "Group states",
+      "type": "table"
+    },
+    {
+      "datasource": null,
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "displayMode": "auto"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "timestamp"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "id": 5,
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "timestamp"
+          }
+        ]
+      },
+      "pluginVersion": "8.0.3",
+      "targets": [
+        {
+          "cacheDurationSeconds": 0,
+          "fields": [
+            {
+              "jsonPath": "$.incidents[*].message"
+            },
+            {
+              "jsonPath": "$.incidents[*].timestamp",
+              "name": "",
+              "type": "time"
+            }
+          ],
+          "method": "GET",
+          "queryParams": "",
+          "refId": "A",
+          "urlPath": "/api/v1/analytics"
+        }
+      ],
+      "title": "Incidents",
+      "type": "table"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 30,
+  "style": "dark",
+  "tags": [],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "LASEMO 2021",
+  "uid": "LDCDqkknz",
+  "version": 6
+}
