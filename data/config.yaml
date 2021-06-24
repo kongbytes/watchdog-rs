@@ -27,7 +27,7 @@ regions:
         tests:
           - ping 1.1.1.1 x5
           - dns lasemo.be
-          - http 192.168.1.1
+          - http lasemo.be
       - name: bars
         mediums: telegram
         threshold: 30s

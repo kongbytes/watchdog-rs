@@ -179,7 +179,7 @@ impl MemoryStorage {
 
         for impacted_group in &self.region_metadata.get(region).unwrap().linked_groups {
 
-            &self.group_storage.insert(impacted_group.to_string(), GroupStatus {
+            &self.group_storage.insert(format!("{}.{}", region, impacted_group), GroupStatus {
                 is_working: false,
                 updated_at: Utc::now()
             });

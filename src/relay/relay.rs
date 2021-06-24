@@ -105,12 +105,12 @@ async fn execute_test(test: &str) -> bool {
 
     if test.starts_with("ping") {
         //println!("Execute ping test");
-        return false;    // TODO
+        return true;    // TODO
     }
 
     if test.starts_with("dns") {
         //println!("Execute DNS test");
-        return false;    // TODO
+        return true;    // TODO
     }
 
     if test.starts_with("http") {
@@ -119,12 +119,17 @@ async fn execute_test(test: &str) -> bool {
 
         return match result.get(1) {
             Some(domain) => {
-                return reqwest::get(format!("http://{}/", domain)).await
-                    .map(|_response| true)
+
+                return reqwest::get(format!("http://{}", domain)).await
+                    .map(|_response| {
+                        //println!("{}", _response.status());
+                        return true;
+                    })
                     .unwrap_or_else(|err| {
                         eprintln!("{}", err);
                         false
                     });
+
             },
             None => false
         };
