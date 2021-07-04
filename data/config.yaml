@@ -1,28 +1,28 @@
 regions:
   - name: lasemo-champs
     interval: 5s
-    threshold: 12s
+    threshold: 3
     groups:
       - name: default
-        threshold: 12s
+        threshold: 4
         mediums: telegram,sms
         tests:
           - http lasemo.be
   - name: lasemo-rh
     interval: 5s
-    threshold: 12s
+    threshold: 3
     groups:
       - name: default
-        threshold: 12s
+        threshold: 4
         mediums: telegram,sms
         tests:
           - http lasemo.be
   - name: lasemo-qg
     interval: 5s
-    threshold: 12s
+    threshold: 2
     groups:
       - name: egress
-        threshold: 12s
+        threshold: 2
         mediums: telegram,sms
         tests:
           - ping 1.1.1.1 x5
@@ -30,14 +30,14 @@ regions:
           - http lasemo.be
       - name: bars
         mediums: telegram
-        threshold: 30s
+        threshold: 3
         tests:
           - ping 192.168.1.1
           - ping 192.168.2.20
           - ping 1.1.1.1
       - name: other
         mediums: telegram
-        threshold: 2m
+        threshold: 5
         tests:
           - ping 192.168.1.50
           - ping 1.1.1.1

@@ -1,8 +1,12 @@
-use clap::{Arg, App};
-
 mod error;
 mod relay;
 mod server;
+
+use std::env;
+
+use clap::{Arg, App, AppSettings};
+
+use crate::server::engine;
 
 #[tokio::main]
 async fn main() {
@@ -13,19 +17,33 @@ async fn main() {
         ("server", Some(server_matches)) => {
 
             match server_matches.value_of("config") {
-                Some(config_path) => server::server::launch(config_path).await,
+                Some(config_path) => engine::launch(config_path).await,
                 None => {
-                    eprintln!("Expected config path");
-                    std::process::exit(1)
+                    eprintln!("The watchdog server needs a YAML configuration file to run");
+                    eprintln!("Provide a file path with the --config option");
+                    std::process::exit(1);
                 }
             }
             
         },
         ("relay", Some(relay_matches)) => {
 
-            // TODO
-            let base_url = "http://localhost:3030".to_string();
-            let token = "secret".to_string();
+            let base_url = match env::var("WATCHDOG_ADDR") {
+                Ok(url_result) => url_result,
+                Err(_err) => {
+                    eprintln!("Expecting server base URL in the WATCHDOG_ADDR variable");
+                    eprintln!("Define an URL such as http://localhost:3030 in an environment variable");
+                    std::process::exit(1);
+                }
+            };
+            let token = match env::var("WATCHDOG_TOKEN") {
+                Ok(token_result) => token_result,
+                Err(_err) => {
+                    eprintln!("Expecting server token in the WATCHDOG_TOKEN variable");
+                    eprintln!("Define a token such as ******** in an environment variable");
+                    std::process::exit(1);
+                }
+            };
 
             match relay_matches.value_of("region") {
                 Some(region_name) => relay::relay::launch(base_url, token,region_name.to_string()).await,
@@ -50,11 +68,12 @@ fn build_args<'a, 'b>() -> clap::App<'a, 'b> {
     App::new("Network watchdog")
         .version("0.1.0")
         .about("Detect network incidents accross regions")
+        .setting(AppSettings::ArgRequiredElseHelp)
         .subcommand(App::new("server")
             .about("Launch server daemon")
             .arg(Arg::with_name("config")
                 .short("c")
-                .long("conf")
+                .long("config")
                 .takes_value(true)
                 .help("YAML config path")
             )

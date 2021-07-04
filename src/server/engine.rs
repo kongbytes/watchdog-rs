@@ -1,12 +1,10 @@
 use std::thread::sleep;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::convert::Infallible;
 use std::time::Duration;
+use std::convert::{TryInto, Infallible};
 
-use tokio::signal;
-use tokio::task;
-use tokio::sync::oneshot;
+use tokio::{signal, task, sync::oneshot, sync::RwLock};
 use warp::Filter;
 
 use crate::server::config::Config;
@@ -21,52 +19,35 @@ pub async fn launch(config_path: &str) {
         std::process::exit(1);
     }));
 
-    {
-        let mut m = storage.write().await;
-                
-        for region in config.regions.iter() {
-            
-            let mut linked_groups: Vec<String> = vec![];
-            for group in region.groups.iter() {
-                m.init_group(&region.name, &group.name);
-                linked_groups.push(group.name.to_string())
-            }
+    init_storage_regions(storage.clone(), config.clone()).await;
 
-            m.init_region(&region.name, linked_groups);
-        }
-    }
-
-    let terminate = Arc::new(AtomicBool::new(false));
-
-    let (tx, rx) = oneshot::channel();
-
-    let y = config.clone();
+    let config_relay_get = config.clone();
     let find_config = warp::get()
         .and(warp::path("api"))
         .and(warp::path("v1"))
         .and(warp::path("relay"))
         .and(warp::path::param())
-        .and(with_config(y))
+        .and(with_config(config_relay_get))
         .and_then(handle_get_config);
 
-    let x = config.clone();
-    let z = storage.clone();
+    let config_relay_put = config.clone();
+    let storage_relay_put = storage.clone();
     let update_region_state = warp::put()
         .and(warp::path("api"))
         .and(warp::path("v1"))
         .and(warp::path("relay"))
         .and(warp::path::param())
         .and(warp::body::json())
-        .and(with_config(x))
-        .and(with_storage(z))
+        .and(with_config(config_relay_put))
+        .and(with_storage(storage_relay_put))
         .and_then(handle_region_update);
 
-    let z1 = storage.clone();
+    let config_analytics = storage.clone();
     let get_analytics = warp::get()
         .and(warp::path("api"))
         .and(warp::path("v1"))
         .and(warp::path("analytics"))
-        .and(with_storage(z1))
+        .and(with_storage(config_analytics))
         .and_then(handle_analytics);
 
     let not_found = warp::any().map(|| "Not found");
@@ -76,20 +57,32 @@ pub async fn launch(config_path: &str) {
         .or(update_region_state)
         .or(not_found);
 
-    let (_addr, server) = warp::serve(routes)
+    let (server_tx, server_rx) = oneshot::channel();
+
+    let (_address, server) = warp::serve(routes)
         .bind_with_graceful_shutdown(([127, 0, 0, 1], 3030), async {
-            rx.await.ok();
+            server_rx.await.ok();
             println!("Received graceful shutdown signal");
         });
 
     let web_handle = task::spawn(server);
 
-    let scheduler_terminate = terminate.clone();
+    println!("");
+    println!(" ✓ Watchdog monitoring API is UP");
+
+    let terminate_sheduler = Arc::new(AtomicBool::new(false));
+
+    let scheduler_terminate = terminate_sheduler.clone();
     let scheduler_conf = config.clone();
     let scheduler_storage = storage.clone();
     let scheduler_handle = task::spawn(async move {
         
-        println!("Spawning scheduler");
+        println!(" ✓ Watchdog network scheduler is UP");
+        println!("");
+        println!("You can now start region network relays");
+        println!("Use the 'relay --region name' command");
+        println!("");
+    
         loop {
 
             if scheduler_terminate.load(Ordering::Relaxed) {
@@ -98,15 +91,10 @@ pub async fn launch(config_path: &str) {
             
             for region in scheduler_conf.regions.iter() {
 
-                // Check regions iter
-                // TODO let interval = region.interval;
-                let interval_seconds: i64 = 10; // TODO parse time region.interval.parse().unwrap();
-
                 let region_status: Option<RegionStatus>;
                 {
-                    let ux = scheduler_storage.read().await;
-                    let zzz = ux.get_region_status(&region.name).map(|status| (*status).clone());
-                    region_status = zzz;
+                    let scheduler_read = scheduler_storage.read().await;
+                    region_status = scheduler_read.get_region_status(&region.name).map(|status| (*status).clone());
                 }
 
                 match region_status {
@@ -117,7 +105,9 @@ pub async fn launch(config_path: &str) {
                             RegionState::INITIAL => (),
                             _ => {
 
-                                if chrono::Utc::now().signed_duration_since(status.updated_at) > chrono::Duration::seconds(interval_seconds) {
+                                // TODO Store in config ?
+                                let region_ms = region.threshold_ms.try_into().unwrap();
+                                if chrono::Utc::now().signed_duration_since(status.updated_at) > chrono::Duration::milliseconds(region_ms) {
                                     println!("INCIDENT ON REGION {}", region.name);
                                     {
                                         let mut sched_store_mut = scheduler_storage.write().await;
@@ -138,14 +128,30 @@ pub async fn launch(config_path: &str) {
         }
 
     });
-    
+
     signal::ctrl_c().await.expect("Should handle CTRL+C");
     
-    terminate.store(true, Ordering::Relaxed);
-    let _ = tx.send(());
+    terminate_sheduler.store(true, Ordering::Relaxed);
+    let _ = server_tx.send(());
 
     web_handle.await.expect("Should end web task");
     scheduler_handle.await.expect("Should end scheduler task");
+}
+
+async fn init_storage_regions(storage: Arc<RwLock<MemoryStorage>>, config: Arc<Config>) {
+
+    let mut write_lock = storage.write().await;
+            
+    for region in config.regions.iter() {
+        
+        let mut linked_groups: Vec<String> = vec![];
+        for group in region.groups.iter() {
+            write_lock.init_group(&region.name, &group.name);
+            linked_groups.push(group.name.to_string())
+        }
+
+        write_lock.init_region(&region.name, linked_groups);
+    }
 }
 
 fn with_config(config: Arc<Config>) -> impl Filter<Extract = (Arc<Config>,), Error = std::convert::Infallible> + Clone {
