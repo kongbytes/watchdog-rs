@@ -7,17 +7,19 @@ use std::convert::{TryInto, Infallible};
 use tokio::{signal, task, sync::oneshot, sync::RwLock};
 use warp::Filter;
 
+use crate::common::error::ServerError;
 use crate::server::config::Config;
 use crate::server::storage::{MemoryStorage, Storage, RegionStatus, RegionState};
+use crate::relay::relay::GroupResult;
 
-pub async fn launch(config_path: &str) {
+const DEFAULT_REGION_MS: i64 = 10 * 1000;
+
+pub async fn launch(config_path: &str) -> Result<(), ServerError> {
 
     let storage = MemoryStorage::new();
 
-    let config = Arc::new(Config::new(config_path).unwrap_or_else(|err| { 
-        eprintln!("{}", err);
-        std::process::exit(1);
-    }));
+    let base_config = Config::new(config_path)?;
+    let config = Arc::new(base_config);
 
     init_storage_regions(storage.clone(), config.clone()).await;
 
@@ -67,7 +69,7 @@ pub async fn launch(config_path: &str) {
 
     let web_handle = task::spawn(server);
 
-    println!("");
+    println!();
     println!(" ✓ Watchdog monitoring API is UP");
 
     let terminate_sheduler = Arc::new(AtomicBool::new(false));
@@ -78,10 +80,10 @@ pub async fn launch(config_path: &str) {
     let scheduler_handle = task::spawn(async move {
         
         println!(" ✓ Watchdog network scheduler is UP");
-        println!("");
+        println!();
         println!("You can now start region network relays");
         println!("Use the 'relay --region name' command");
-        println!("");
+        println!();
     
         loop {
 
@@ -97,31 +99,25 @@ pub async fn launch(config_path: &str) {
                     region_status = scheduler_read.get_region_status(&region.name).map(|status| (*status).clone());
                 }
 
-                match region_status {
-                    Some(status) => {
+                if let Some(status) = region_status {
 
-                        match status.status {
-                            RegionState::DOWN => (),
-                            RegionState::INITIAL => (),
-                            _ => {
+                    match status.status {
+                        RegionState::DOWN => (),
+                        RegionState::INITIAL => (),
+                        _ => {
 
-                                // TODO Store in config ?
-                                let region_ms = region.threshold_ms.try_into().unwrap();
-                                if chrono::Utc::now().signed_duration_since(status.updated_at) > chrono::Duration::milliseconds(region_ms) {
-                                    println!("INCIDENT ON REGION {}", region.name);
-                                    {
-                                        let mut sched_store_mut = scheduler_storage.write().await;
-                                        sched_store_mut.trigger_region_incident(&region.name);
-                                    }
+                            let region_ms = region.threshold_ms.try_into().unwrap_or(DEFAULT_REGION_MS);
+                            if chrono::Utc::now().signed_duration_since(status.updated_at) > chrono::Duration::milliseconds(region_ms) {
+                                println!("INCIDENT ON REGION {}", region.name);
+                                {
+                                    let mut sched_store_mut = scheduler_storage.write().await;
+                                    sched_store_mut.trigger_region_incident(&region.name);
                                 }
-
                             }
-                        };
 
-                    },
-                    None => ()
-                };
-
+                        }
+                    };
+                }
             }
 
             sleep(Duration::from_secs(1));
@@ -129,13 +125,15 @@ pub async fn launch(config_path: &str) {
 
     });
 
-    signal::ctrl_c().await.expect("Should handle CTRL+C");
+    signal::ctrl_c().await.map_err(|err| ServerError::new("Could not handle graceful shutdown signal", err))?;
     
     terminate_sheduler.store(true, Ordering::Relaxed);
     let _ = server_tx.send(());
 
-    web_handle.await.expect("Should end web task");
-    scheduler_handle.await.expect("Should end scheduler task");
+    web_handle.await.map_err(|err| ServerError::new("Could not end web task", err))?;
+    scheduler_handle.await.map_err(|err| ServerError::new("Could not end scheduler task", err))?;
+
+    Ok(())
 }
 
 async fn init_storage_regions(storage: Arc<RwLock<MemoryStorage>>, config: Arc<Config>) {
@@ -170,37 +168,33 @@ async fn handle_get_config(region_name: String, config: Arc<Config>) -> Result<i
     }   
 }
 
-async fn handle_region_update(region_name: String, results: Vec<crate::relay::relay::GroupResult>, _config: Arc<Config>, storage: Storage) -> Result<impl warp::Reply, Infallible> {
+async fn handle_region_update(region_name: String, results: Vec<GroupResult>, _config: Arc<Config>, storage: Storage) -> Result<impl warp::Reply, Infallible> {
 
     // TODO Blocking RW too long
     {
-        let mut w = storage.write().await;
+        let mut write_lock = storage.write().await;
 
         let mut has_warning = false;
         for group in results {
 
-            if group.working == false {
+            if !group.working {
                 has_warning = true;
             }
 
-            w.refresh_group(&region_name, &group.name, group.working)
+            write_lock.refresh_group(&region_name, &group.name, group.working)
         }
 
-        let region_status = w.get_region_status(&region_name);
+        let region_status = write_lock.get_region_status(&region_name);
 
-        match region_status {
-            Some(status) => {
+        if let Some(status) = region_status {
 
-                // We already had an incident
-                if let RegionState::DOWN = status.status {
-                    println!("INCIDENT RESOLVED ON REGION {}", region_name);
-                }
+            // We already had an incident
+            if let RegionState::DOWN = status.status {
+                println!("INCIDENT RESOLVED ON REGION {}", region_name);
+            }
+        }
 
-            },
-            None => ()
-        };
-
-        w.refresh_region(&region_name, has_warning);
+        write_lock.refresh_region(&region_name, has_warning);
     }
 
     return Ok(warp::reply::json(&"{}"));

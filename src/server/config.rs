@@ -2,11 +2,12 @@ use std::fs;
 use std::convert::TryFrom;
 
 use serde::{Deserialize, Serialize};
-use serde_yaml;
 
-use crate::error::ServerError;
+use crate::common::error::ServerError;
 
-// Input models
+// The 'input' models below will only be used once to parse the YAML
+// configuration file. This data is rather human-friendly and will not be used
+// accross watchdog services (see below).
 
 #[derive(Deserialize)]
 pub struct GroupConfigInput {
@@ -56,16 +57,10 @@ impl Config {
 
     pub fn new(config_path: &str) -> Result<Config, ServerError> {
 
-        let contents = fs::read_to_string(config_path).map_err(|err| ServerError {
-            message: format!("Could not read configuration file - {}", err)
-        })?;
-        let parsed_yaml: ConfigInput = serde_yaml::from_str(&contents).map_err(|err| ServerError {
-            message: format!("Could not parse YAML - {}", err)
-        })?;
+        let contents = fs::read_to_string(config_path).map_err(|err| ServerError::new("Could not read configuration file", err))?;
+        let parsed_yaml: ConfigInput = serde_yaml::from_str(&contents).map_err(|err| ServerError::new("Could not parse YAML", err))?;
 
-        Config::try_from(parsed_yaml).map_err(|err| ServerError {
-            message: format!("{}", err)
-        })
+        Config::try_from(parsed_yaml).map_err(|err| ServerError::new("Failed to parse config", err))
     }
 
     pub fn export_region(&self, region_name: &str) -> Option<&RegionConfig> {

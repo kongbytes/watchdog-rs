@@ -93,7 +93,7 @@ impl MemoryStorage {
         });
     }
 
-    pub fn init_group(&mut self, region: &str, group: &str) -> () {
+    pub fn init_group(&mut self, region: &str, group: &str) {
 
         let group_key = format!("{}.{}", region, group);
 
@@ -151,7 +151,7 @@ impl MemoryStorage {
         }
     }
 
-    pub fn refresh_region(&mut self, region: &str, has_warnings: bool) -> () {
+    pub fn refresh_region(&mut self, region: &str, has_warnings: bool) {
 
         // TODO Should also track unstable states in regions
 
@@ -164,13 +164,15 @@ impl MemoryStorage {
         });
     }
 
-    pub fn trigger_region_incident(&mut self, region: &str) -> () {
+    pub fn trigger_region_incident(&mut self, region: &str) {
 
-        // TODO An incident on a region should also impact all groups
         // TODO Should track incident end
 
         let old_status = self.region_storage.get(region).unwrap();
-        let updated_at = old_status.updated_at.clone();
+
+        // The 'chrono UTC' type implements the 'Copy' trait and does not
+        // require a clone() call, which simplifies ownership. 
+        let updated_at = old_status.updated_at;
         
         self.region_storage.insert(region.to_string(), RegionStatus {
             status: RegionState::DOWN,
@@ -179,7 +181,7 @@ impl MemoryStorage {
 
         for impacted_group in &self.region_metadata.get(region).unwrap().linked_groups {
 
-            &self.group_storage.insert(format!("{}.{}", region, impacted_group), GroupStatus {
+            self.group_storage.insert(format!("{}.{}", region, impacted_group), GroupStatus {
                 is_working: false,
                 updated_at: Utc::now()
             });
@@ -191,7 +193,7 @@ impl MemoryStorage {
         });
     }
 
-    pub fn refresh_group(&mut self, region: &str, group: &str, is_working: bool) -> () {
+    pub fn refresh_group(&mut self, region: &str, group: &str, is_working: bool) {
 
         let group_key = format!("{}.{}", region, group);
         self.group_storage.insert(group_key, GroupStatus {

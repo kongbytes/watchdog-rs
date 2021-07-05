@@ -1,8 +1,9 @@
-mod error;
+mod common;
 mod relay;
 mod server;
 
 use std::env;
+use std::process;
 
 use clap::{Arg, App, AppSettings};
 
@@ -17,13 +18,26 @@ async fn main() {
         ("server", Some(server_matches)) => {
 
             match server_matches.value_of("config") {
-                Some(config_path) => engine::launch(config_path).await,
+                Some(config_path) => {
+
+                    let server_result = engine::launch(config_path).await;
+
+                    if let Err(server_err) = server_result {
+                        eprintln!("The watchdog server process failed, see details below");
+                        eprintln!("{}", server_err);
+                        if let Some(err_details) = server_err.details {
+                            eprintln!("{}", err_details);
+                        }
+                        process::exit(1);
+                    }                    
+
+                }
                 None => {
                     eprintln!("The watchdog server needs a YAML configuration file to run");
                     eprintln!("Provide a file path with the --config option");
-                    std::process::exit(1);
+                    process::exit(1);
                 }
-            }
+            };
             
         },
         ("relay", Some(relay_matches)) => {
@@ -33,7 +47,7 @@ async fn main() {
                 Err(_err) => {
                     eprintln!("Expecting server base URL in the WATCHDOG_ADDR variable");
                     eprintln!("Define an URL such as http://localhost:3030 in an environment variable");
-                    std::process::exit(1);
+                    process::exit(1);
                 }
             };
             let token = match env::var("WATCHDOG_TOKEN") {
@@ -41,24 +55,37 @@ async fn main() {
                 Err(_err) => {
                     eprintln!("Expecting server token in the WATCHDOG_TOKEN variable");
                     eprintln!("Define a token such as ******** in an environment variable");
-                    std::process::exit(1);
+                    process::exit(1);
                 }
             };
 
             match relay_matches.value_of("region") {
-                Some(region_name) => relay::relay::launch(base_url, token,region_name.to_string()).await,
+                Some(region_name) => {
+
+                    let relay_result = crate::relay::relay::launch(base_url, token,region_name.to_string()).await;
+
+                    if let Err(relay_err) = relay_result {
+                        eprintln!("The watchdog relay process failed, see details below");
+                        eprintln!("{}", relay_err);
+                        if let Some(err_details) = relay_err.details {
+                            eprintln!("{}", err_details);
+                        }
+                        process::exit(1);
+                    }
+
+                },
                 None => {
                     eprintln!("Expected relay region");
-                    std::process::exit(1)
+                    process::exit(1)
                 }
-            }
+            };
 
         },
         ("silence", Some(_)) =>  (),
         ("incident", Some(_)) => (),
         _ => {
             eprintln!("Could not find command to launch");
-            std::process::exit(1)
+            process::exit(1)
         }
     };
 }
