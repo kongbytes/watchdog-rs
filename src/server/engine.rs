@@ -6,19 +6,33 @@ use std::convert::{TryInto, Infallible};
 
 use tokio::{signal, task, sync::oneshot, sync::RwLock};
 use warp::Filter;
+use chrono::{Duration as ChronoDuration, Utc};
 
 use crate::common::error::ServerError;
 use crate::server::config::Config;
-use crate::server::storage::{MemoryStorage, Storage, RegionStatus, RegionState};
+use crate::server::storage::{MemoryStorage, Storage, RegionStatus, GroupStatus, GroupState, RegionState};
 use crate::relay::relay::GroupResult;
+use crate::server::alert::{self, TelegramOptions};
 
+// TODO Should review defaults
 const DEFAULT_REGION_MS: i64 = 10 * 1000;
+const DEFAULT_GROUP_MS: i64 = 10 * 1000;
 
-pub async fn launch(config_path: &str) -> Result<(), ServerError> {
+pub struct ServerConf {
+
+    pub config_path: String,
+    pub port: u16,
+
+    pub telegram_token: Option<String>,
+    pub telegram_chat: Option<String>
+
+}
+
+pub async fn launch(server_conf: ServerConf) -> Result<(), ServerError> {
 
     let storage = MemoryStorage::new();
 
-    let base_config = Config::new(config_path)?;
+    let base_config = Config::new(&server_conf.config_path)?;
     let config = Arc::new(base_config);
 
     init_storage_regions(storage.clone(), config.clone()).await;
@@ -62,7 +76,7 @@ pub async fn launch(config_path: &str) -> Result<(), ServerError> {
     let (server_tx, server_rx) = oneshot::channel();
 
     let (_address, server) = warp::serve(routes)
-        .bind_with_graceful_shutdown(([127, 0, 0, 1], 3030), async {
+        .bind_with_graceful_shutdown(([0, 0, 0, 0], server_conf.port), async {
             server_rx.await.ok();
             println!("Received graceful shutdown signal");
         });
@@ -106,17 +120,67 @@ pub async fn launch(config_path: &str) -> Result<(), ServerError> {
                         RegionState::INITIAL => (),
                         _ => {
 
-                            let region_ms = region.threshold_ms.try_into().unwrap_or(DEFAULT_REGION_MS);
-                            if chrono::Utc::now().signed_duration_since(status.updated_at) > chrono::Duration::milliseconds(region_ms) {
+                            let region_ms: i64 = region.threshold_ms.try_into().unwrap_or(DEFAULT_REGION_MS);
+                            if Utc::now().signed_duration_since(status.updated_at) > ChronoDuration::milliseconds(region_ms) {
+                                
                                 println!("INCIDENT ON REGION {}", region.name);
                                 {
                                     let mut sched_store_mut = scheduler_storage.write().await;
                                     sched_store_mut.trigger_region_incident(&region.name);
                                 }
+
+                                // TODO What if wrong telegram conf ?
+                                if let (Some(telegram_token), Some(telegram_chat)) = (&server_conf.telegram_token, &server_conf.telegram_chat) {
+                                    let message = format!("Network DOWN on region {}", &region.name);
+                                    let options = TelegramOptions {
+                                        disable_notifications: false
+                                    };
+                                    alert::alert_telegram(telegram_token, telegram_chat, &message, options).await.unwrap();
+                                }
                             }
 
                         }
                     };
+                }
+
+                for group in region.groups.iter() {
+
+                    let group_status: Option<GroupStatus>;
+                    {
+                        let scheduler_read = scheduler_storage.read().await;
+                        group_status = scheduler_read.get_group_status(&region.name, &group.name).map(|status| (*status).clone());
+                    }
+
+                    if let Some(status) = group_status {
+
+                        match status.status {
+                            GroupState::DOWN => (),
+                            GroupState::INITIAL => (),
+                            GroupState::UP => {
+    
+                                let group_ms: i64 = group.threshold_ms.try_into().unwrap_or(DEFAULT_GROUP_MS);
+                                if Utc::now().signed_duration_since(status.updated_at) > ChronoDuration::milliseconds(group_ms) {
+                                    
+                                    println!("INCIDENT ON GROUP {}.{}", region.name, group.name);
+                                    {
+                                        // TODO Should trigger incident in logs
+                                        let mut sched_store_mut = scheduler_storage.write().await;
+                                        sched_store_mut.trigger_group_incident(&region.name, &group.name);
+                                    }
+    
+                                    // TODO What if wrong telegram conf ?
+                                    if let (Some(telegram_token), Some(telegram_chat)) = (&server_conf.telegram_token, &server_conf.telegram_chat) {
+                                        let message = format!("Network DOWN on group {}.{}", &region.name, &group.name);
+                                        let options = TelegramOptions {
+                                            disable_notifications: false
+                                        };
+                                        alert::alert_telegram(telegram_token, telegram_chat, &message, options).await.unwrap();
+                                    }
+                                }
+    
+                            }
+                        };
+                    }
                 }
             }
 
@@ -181,7 +245,12 @@ async fn handle_region_update(region_name: String, results: Vec<GroupResult>, _c
                 has_warning = true;
             }
 
-            write_lock.refresh_group(&region_name, &group.name, group.working)
+            let state = match group.working {
+                true => GroupState::UP,
+                false => GroupState::DOWN
+            };
+
+            write_lock.refresh_group(&region_name, &group.name, state);
         }
 
         let region_status = write_lock.get_region_status(&region_name);

@@ -20,7 +20,14 @@ async fn main() {
             match server_matches.value_of("config") {
                 Some(config_path) => {
 
-                    let server_result = engine::launch(config_path).await;
+                    let server_conf = engine::ServerConf {
+                        config_path: config_path.to_string(),
+                        port: 3030,
+                        telegram_token: env::var("TELEGRAM_TOKEN").ok(),
+                        telegram_chat: env::var("TELEGRAM_CHAT").ok()
+                    };
+
+                    let server_result = engine::launch(server_conf).await;
 
                     if let Err(server_err) = server_result {
                         eprintln!("The watchdog server process failed, see details below");

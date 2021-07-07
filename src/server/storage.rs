@@ -16,6 +16,13 @@ pub enum RegionState {
 }
 
 #[derive(Clone)]
+pub enum GroupState {
+    INITIAL,
+    UP,
+    DOWN
+}
+
+#[derive(Clone)]
 pub struct RegionStatus {
     pub status: RegionState,
     pub updated_at: DateTime<Utc>,
@@ -25,8 +32,9 @@ struct RegionMetadata {
     linked_groups: Vec<String>
 }
 
+#[derive(Clone)]
 pub struct GroupStatus {
-    pub is_working: bool,
+    pub status: GroupState,
     pub updated_at: DateTime<Utc>
 }
 
@@ -59,7 +67,7 @@ pub struct RegionSummaryItem {
 #[derive(Deserialize,Serialize)]
 pub struct GroupSummaryItem {
     pub name: String,
-    pub is_working: bool,
+    pub status: String,
     pub last_update: String
 }
 
@@ -97,15 +105,20 @@ impl MemoryStorage {
 
         let group_key = format!("{}.{}", region, group);
 
-        // TODO Should work with states and not set the instant
         self.group_storage.insert(group_key, GroupStatus {
-            is_working: false,
+            status: GroupState::INITIAL,
             updated_at: Utc::now()
         });
     }
 
     pub fn get_region_status(&self, region: &str) -> Option<&RegionStatus> {
         self.region_storage.get(region)
+    }
+
+    pub fn get_group_status(&self, region: &str, group: &str) -> Option<&GroupStatus> {
+        
+        let group_key = format!("{}.{}", region, group);
+        self.group_storage.get(&group_key)
     }
 
     pub fn compute_analytics(&self) -> RegionSummary {
@@ -130,7 +143,11 @@ impl MemoryStorage {
 
             groups.push(GroupSummaryItem {
                 name: group_key.to_string(),
-                is_working: group_value.is_working,
+                status: match group_value.status {
+                    GroupState::UP => "up".to_string(),
+                    GroupState::DOWN => "down".to_string(),
+                    GroupState::INITIAL => "initial".to_string()
+                },
                 last_update: group_value.updated_at.to_rfc3339()
             });
         }
@@ -182,7 +199,7 @@ impl MemoryStorage {
         for impacted_group in &self.region_metadata.get(region).unwrap().linked_groups {
 
             self.group_storage.insert(format!("{}.{}", region, impacted_group), GroupStatus {
-                is_working: false,
+                status: GroupState::DOWN,
                 updated_at: Utc::now()
             });
         }
@@ -193,12 +210,34 @@ impl MemoryStorage {
         });
     }
 
-    pub fn refresh_group(&mut self, region: &str, group: &str, is_working: bool) {
+    pub fn refresh_group(&mut self, region: &str, group: &str, status: GroupState) {
 
         let group_key = format!("{}.{}", region, group);
         self.group_storage.insert(group_key, GroupStatus {
-            is_working,
+            status,
             updated_at: Utc::now()
+        });
+    }
+
+    pub fn trigger_group_incident(&mut self, region: &str, group: &str) {
+
+        // TODO Should track incident end
+
+        let group_key = format!("{}.{}", region, group);
+        let old_status = self.group_storage.get(&group_key).unwrap();
+
+        // The 'chrono UTC' type implements the 'Copy' trait and does not
+        // require a clone() call, which simplifies ownership. 
+        let updated_at = old_status.updated_at;
+        
+        self.group_storage.insert(group_key, GroupStatus {
+            status: GroupState::DOWN,
+            updated_at
+        });
+
+        self.incidents.push(IncidentRecord {
+            message: format!("Group {}.{} is DOWN", region, group),
+            timestamp: Utc::now()
         });
     }
 
