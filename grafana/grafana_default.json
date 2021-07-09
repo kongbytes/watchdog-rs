@@ -178,7 +178,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "is_working"
+              "options": "status"
             },
             "properties": [
               {
@@ -186,25 +186,28 @@
                 "value": [
                   {
                     "options": {
-                      "match": "true",
-                      "result": {
-                        "color": "green",
-                        "index": 0,
-                        "text": "Group OK"
-                      }
-                    },
-                    "type": "special"
-                  },
-                  {
-                    "options": {
-                      "match": "false",
-                      "result": {
+                      "down": {
+                        "color": "orange",
+                        "index": 2,
+                        "text": "Group DOWN & UNSTABLE"
+                      },
+                      "incident": {
                         "color": "red",
+                        "index": 3,
+                        "text": "Group DOWN & CONFIRMED"
+                      },
+                      "initial": {
+                        "color": "blue",
+                        "index": 0,
+                        "text": "Unknown"
+                      },
+                      "up": {
+                        "color": "green",
                         "index": 1,
-                        "text": "Group FAILED"
+                        "text": "Group UP"
                       }
                     },
-                    "type": "special"
+                    "type": "value"
                   }
                 ]
               },
@@ -253,7 +256,7 @@
               "jsonPath": "$.groups[*].name"
             },
             {
-              "jsonPath": "$.groups[*].is_working",
+              "jsonPath": "$.groups[*].status",
               "name": "",
               "type": "string"
             },
@@ -368,5 +371,5 @@
   "timezone": "",
   "title": "LASEMO 2021",
   "uid": "LDCDqkknz",
-  "version": 6
+  "version": 8
 }

@@ -88,7 +88,7 @@ impl TryFrom<ConfigInput> for Config{
                     name: String::from(&group_input.name),
                     threshold_ms: region_interval_ms * group_input.threshold + 1000,
                     mediums: group_input.mediums.split(',')
-                        .map(|medium| String::from(medium))
+                        .map(String::from)
                         .collect::<Vec<String>>(),
                     tests: group_input.tests.clone()
                 };

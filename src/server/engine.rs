@@ -11,7 +11,7 @@ use chrono::{Duration as ChronoDuration, Utc};
 use crate::common::error::ServerError;
 use crate::server::config::Config;
 use crate::server::storage::{MemoryStorage, Storage, RegionStatus, GroupStatus, GroupState, RegionState};
-use crate::relay::relay::GroupResult;
+use crate::relay::instance::GroupResult;
 use crate::server::alert::{self, TelegramOptions};
 
 // TODO Should review defaults
@@ -126,7 +126,10 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), ServerError> {
                                 println!("INCIDENT ON REGION {}", region.name);
                                 {
                                     let mut sched_store_mut = scheduler_storage.write().await;
-                                    sched_store_mut.trigger_region_incident(&region.name);
+                                    sched_store_mut.trigger_region_incident(&region.name).unwrap_or_else(|err| {
+                                        eprintln!("Failed to trigger incident in storage: {}", err);
+                                        eprintln!("This error will be ignored but can cause unstable storage");
+                                    });
                                 }
 
                                 // TODO What if wrong telegram conf ?
@@ -135,7 +138,9 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), ServerError> {
                                     let options = TelegramOptions {
                                         disable_notifications: false
                                     };
-                                    alert::alert_telegram(telegram_token, telegram_chat, &message, options).await.unwrap();
+                                    alert::alert_telegram(telegram_token, telegram_chat, &message, options).await.unwrap_or_else(|err| {
+                                        eprintln!("Failed to trigger incident notification: {}", err);
+                                    });
                                 }
                             }
 
@@ -154,9 +159,8 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), ServerError> {
                     if let Some(status) = group_status {
 
                         match status.status {
-                            GroupState::DOWN => (),
-                            GroupState::INITIAL => (),
-                            GroupState::UP => {
+                            GroupState::UP | GroupState::INITIAL | GroupState::INCIDENT => (),
+                            GroupState::DOWN => {
     
                                 let group_ms: i64 = group.threshold_ms.try_into().unwrap_or(DEFAULT_GROUP_MS);
                                 if Utc::now().signed_duration_since(status.updated_at) > ChronoDuration::milliseconds(group_ms) {
@@ -165,7 +169,10 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), ServerError> {
                                     {
                                         // TODO Should trigger incident in logs
                                         let mut sched_store_mut = scheduler_storage.write().await;
-                                        sched_store_mut.trigger_group_incident(&region.name, &group.name);
+                                        sched_store_mut.trigger_group_incident(&region.name, &group.name).unwrap_or_else(|err| {
+                                            eprintln!("Failed to trigger incident in storage: {}", err);
+                                            eprintln!("This error will be ignored but can cause unstable storage");
+                                        });
                                     }
     
                                     // TODO What if wrong telegram conf ?
@@ -174,7 +181,9 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), ServerError> {
                                         let options = TelegramOptions {
                                             disable_notifications: false
                                         };
-                                        alert::alert_telegram(telegram_token, telegram_chat, &message, options).await.unwrap();
+                                        alert::alert_telegram(telegram_token, telegram_chat, &message, options).await.unwrap_or_else(|err| {
+                                            eprintln!("Failed to trigger incident notification: {}", err);
+                                        });
                                     }
                                 }
     
@@ -250,7 +259,9 @@ async fn handle_region_update(region_name: String, results: Vec<GroupResult>, _c
                 false => GroupState::DOWN
             };
 
-            write_lock.refresh_group(&region_name, &group.name, state);
+            write_lock.refresh_group(&region_name, &group.name, state).unwrap_or_else(|err| {
+                eprintln!("Could not refresh group, can cause unstable storage: {}", err);
+            });
         }
 
         let region_status = write_lock.get_region_status(&region_name);

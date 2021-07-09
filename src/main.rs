@@ -8,6 +8,7 @@ use std::process;
 use clap::{Arg, App, AppSettings};
 
 use crate::server::engine;
+use crate::relay::instance;
 
 #[tokio::main]
 async fn main() {
@@ -69,7 +70,7 @@ async fn main() {
             match relay_matches.value_of("region") {
                 Some(region_name) => {
 
-                    let relay_result = crate::relay::relay::launch(base_url, token,region_name.to_string()).await;
+                    let relay_result = instance::launch(base_url, token,region_name.to_string()).await;
 
                     if let Err(relay_err) = relay_result {
                         eprintln!("The watchdog relay process failed, see details below");

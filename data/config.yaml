@@ -5,7 +5,7 @@ regions:
     groups:
       - name: default
         threshold: 4
-        mediums: telegram,sms
+        mediums: telegram
         tests:
           - http lasemo.be
   - name: lasemo-rh
@@ -14,7 +14,7 @@ regions:
     groups:
       - name: default
         threshold: 4
-        mediums: telegram,sms
+        mediums: telegram
         tests:
           - http lasemo.be
   - name: lasemo-qg
@@ -23,7 +23,7 @@ regions:
     groups:
       - name: egress
         threshold: 2
-        mediums: telegram,sms
+        mediums: telegram
         tests:
           - ping 1.1.1.1 x5
           - dns lasemo.be

@@ -16,6 +16,14 @@ impl ServerError {
         }
     }
 
+    pub fn basic(message: String) -> Self {
+
+        ServerError {
+            message,
+            details: None
+        }
+    }
+
 }
 
 impl Display for ServerError {

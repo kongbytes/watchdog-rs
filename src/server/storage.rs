@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use chrono::{DateTime, Utc};
 
+use crate::common::error::ServerError;
+
 pub type Storage = Arc<RwLock<MemoryStorage>>;
 
 #[derive(Clone)]
@@ -19,7 +21,8 @@ pub enum RegionState {
 pub enum GroupState {
     INITIAL,
     UP,
-    DOWN
+    DOWN,
+    INCIDENT
 }
 
 #[derive(Clone)]
@@ -146,6 +149,7 @@ impl MemoryStorage {
                 status: match group_value.status {
                     GroupState::UP => "up".to_string(),
                     GroupState::DOWN => "down".to_string(),
+                    GroupState::INCIDENT => "incident".to_string(),
                     GroupState::INITIAL => "initial".to_string()
                 },
                 last_update: group_value.updated_at.to_rfc3339()
@@ -181,11 +185,11 @@ impl MemoryStorage {
         });
     }
 
-    pub fn trigger_region_incident(&mut self, region: &str) {
+    pub fn trigger_region_incident(&mut self, region: &str) -> Result<(), ServerError> {
 
         // TODO Should track incident end
 
-        let old_status = self.region_storage.get(region).unwrap();
+        let old_status = self.region_storage.get(region).ok_or_else(|| ServerError::basic(format!("Could not find region storage {}", region)))?;
 
         // The 'chrono UTC' type implements the 'Copy' trait and does not
         // require a clone() call, which simplifies ownership. 
@@ -196,10 +200,11 @@ impl MemoryStorage {
             updated_at
         });
 
-        for impacted_group in &self.region_metadata.get(region).unwrap().linked_groups {
+        let region_metadata = self.region_metadata.get(region).ok_or_else(|| ServerError::basic(format!("Could not find region metadata {}", region)))?;
+        for impacted_group in &region_metadata.linked_groups {
 
             self.group_storage.insert(format!("{}.{}", region, impacted_group), GroupStatus {
-                status: GroupState::DOWN,
+                status: GroupState::INCIDENT,
                 updated_at: Utc::now()
             });
         }
@@ -208,30 +213,43 @@ impl MemoryStorage {
             message: format!("Region {} is DOWN", region),
             timestamp: Utc::now()
         });
+
+        Ok(())
     }
 
-    pub fn refresh_group(&mut self, region: &str, group: &str, status: GroupState) {
+    pub fn refresh_group(&mut self, region: &str, group: &str, status: GroupState) -> Result<(), ServerError> {
 
         let group_key = format!("{}.{}", region, group);
+        let updated_at = match status {
+            GroupState::DOWN => {
+                let old_status = self.group_storage.get(&group_key).ok_or_else(|| ServerError::basic(format!("Could not find group storage {}", group_key)))?;
+                old_status.updated_at
+            },
+            _ => Utc::now()
+        };
+
         self.group_storage.insert(group_key, GroupStatus {
             status,
-            updated_at: Utc::now()
+            updated_at
         });
+
+        Ok(())
     }
 
-    pub fn trigger_group_incident(&mut self, region: &str, group: &str) {
+    pub fn trigger_group_incident(&mut self, region: &str, group: &str) -> Result<(), ServerError> {
 
         // TODO Should track incident end
 
         let group_key = format!("{}.{}", region, group);
-        let old_status = self.group_storage.get(&group_key).unwrap();
+        let old_status = self.group_storage.get(&group_key).ok_or_else(|| ServerError::basic(format!("Could not find group storage {}", group_key)))?;
 
         // The 'chrono UTC' type implements the 'Copy' trait and does not
         // require a clone() call, which simplifies ownership. 
         let updated_at = old_status.updated_at;
         
+        // Move to incident, this will avoid re-trigger alerts
         self.group_storage.insert(group_key, GroupStatus {
-            status: GroupState::DOWN,
+            status: GroupState::INCIDENT,
             updated_at
         });
 
@@ -239,6 +257,8 @@ impl MemoryStorage {
             message: format!("Group {}.{} is DOWN", region, group),
             timestamp: Utc::now()
         });
+
+        Ok(())
     }
 
 }
