@@ -7,7 +7,7 @@ regions:
         threshold: 4
         mediums: telegram
         tests:
-          - http lasemo.be
+          - http www.lasemo.be
   - name: lasemo-rh
     interval: 5s
     threshold: 3
@@ -16,7 +16,7 @@ regions:
         threshold: 4
         mediums: telegram
         tests:
-          - http lasemo.be
+          - http www.lasemo.be
   - name: lasemo-qg
     interval: 5s
     threshold: 2
@@ -25,9 +25,9 @@ regions:
         threshold: 2
         mediums: telegram
         tests:
-          - ping 1.1.1.1 x5
-          - dns lasemo.be
-          - http lasemo.be
+          - ping 1.1.1.1
+          - dns www.lasemo.be
+          - http www.lasemo.be
       - name: bars
         mediums: telegram
         threshold: 3

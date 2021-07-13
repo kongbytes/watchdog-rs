@@ -1,0 +1,15 @@
+# /etc/systemd/system/watchdog.service
+
+[Unit]
+Description=Watchdog LS service                                                 
+
+[Service]
+User=grafana                                                                       
+WorkingDirectory=/home/grafana                                                     
+Environment="TELEGRAM_CHAT=xxx"
+Environment="TELEGRAM_TOKEN=xxx"
+ExecStart=/usr/local/bin/watchdog-cli server --config ./config.yaml
+Restart=always                                                                     
+
+[Install]
+WantedBy=multi-user.target  

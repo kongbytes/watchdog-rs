@@ -2,10 +2,13 @@ use std::time::Duration;
 use std::thread::sleep;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::process::Stdio;
 
 use serde::{Deserialize, Serialize};
 use tokio::signal;
 use tokio::task;
+use tokio::process::Command;
+use reqwest::Client;
 
 use crate::server::config::RegionConfig;
 use crate::common::error::RelayError;
@@ -115,8 +118,28 @@ async fn update_region_state(base_url: &str, token: &str, region_name: &str, gro
 async fn execute_test(test: &str) -> bool {
 
     if test.starts_with("ping") {
-        //println!("Execute ping test");
-        return true;    // TODO
+
+        let ping_components: Vec<String> = test.split(' ').map(|item| item.to_string()).collect();
+
+        return match ping_components.get(1) {
+            Some(ip_address) => {
+
+                let is_success = Command::new("/usr/bin/ping")
+                    .arg("-c")
+                    .arg("1")
+                    .arg("-w")
+                    .arg("2")
+                    .arg(ip_address)
+                    .stdout(Stdio::null())
+                    .status()
+                    .await
+                    .map(|status| status.success())
+                    .unwrap_or(false);
+
+                return is_success;
+            }
+            None => false
+        }
     }
 
     if test.starts_with("dns") {
@@ -131,20 +154,87 @@ async fn execute_test(test: &str) -> bool {
         return match result.get(1) {
             Some(domain) => {
 
-                return reqwest::get(format!("http://{}", domain)).await
-                    .map(|_response| {
-                        //println!("{}", _response.status());
-                        true
-                    })
-                    .unwrap_or_else(|err| {
-                        eprintln!("{}", err);
-                        false
-                    });
+                let client = Client::new();
+                let url = format!("http://{}", domain);
+                let request_result = client.get(url)
+                    .header("user-agent", "watchdog-relay")
+                    .header("cache-control", "no-cache")
+                    .send()
+                    .await;
 
+                match request_result {
+                    Ok(response) => {
+
+                        let http_status = &response.status();
+                        if http_status.is_client_error() || http_status.is_server_error() {
+                            return false;
+                        }
+
+                        return true;
+
+                    },
+                    Err(_) => false
+                }
             },
             None => false
         };
     }
 
     return false;   // TODO
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[tokio::test]
+    async fn should_request_http_domain() {
+        
+        assert_eq!(execute_test("http lasemo.be").await, true);
+    }
+
+    #[tokio::test]
+    async fn should_request_http_path() {
+        
+        assert_eq!(execute_test("http www.lasemo.be/mentions-legales").await, true);
+    }
+
+    #[tokio::test]
+    async fn should_fail_http_invalid_domain() {
+        
+        assert_eq!(execute_test("http www.lasemo-does-not-exist.be").await, false);
+    }
+
+    #[tokio::test]
+    async fn should_fail_http_unknown_page() {
+        
+        assert_eq!(execute_test("http www.lasemo.be/unknown").await, false);
+    }
+
+    #[tokio::test]
+    async fn should_perform_valid_ping() {
+        
+        assert_eq!(execute_test("ping 1.1.1.1").await, true);
+    }
+
+    #[tokio::test]
+    async fn should_fail_invalid_ping() {
+        
+        assert_eq!(execute_test("ping 10.99.99.99").await, false);
+    }
+
+    #[tokio::test]
+    async fn should_fail_unknown_test_type() {
+        
+        assert_eq!(execute_test("unknown").await, false);
+    }
+
+    #[tokio::test]
+    async fn should_fail_empty_test() {
+        
+        assert_eq!(execute_test("").await, false);
+    }
+
+
 }
