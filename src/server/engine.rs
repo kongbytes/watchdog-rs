@@ -5,7 +5,7 @@ use std::time::Duration;
 use std::convert::{TryInto, Infallible};
 
 use tokio::{signal, task, sync::oneshot, sync::RwLock};
-use warp::Filter;
+use warp::{Filter, http::Response};
 use chrono::{Duration as ChronoDuration, Utc};
 
 use crate::common::error::ServerError;
@@ -37,38 +37,44 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), ServerError> {
 
     init_storage_regions(storage.clone(), config.clone()).await;
 
-    let config_relay_get = config.clone();
+    let base_path = warp::path::end()
+        .map(|| Response::builder()
+            .status(404)
+            .header("Content-Type", "text/html")
+            .header("Cache-Control", "no-cache")
+            .header("Connection", "close")
+            .body("")
+            .expect("Could not build base path response"));
+
     let find_config = warp::get()
         .and(warp::path("api"))
         .and(warp::path("v1"))
         .and(warp::path("relay"))
         .and(warp::path::param())
-        .and(with_config(config_relay_get))
+        .and(with_config(config.clone()))
         .and_then(handle_get_config);
 
-    let config_relay_put = config.clone();
-    let storage_relay_put = storage.clone();
     let update_region_state = warp::put()
         .and(warp::path("api"))
         .and(warp::path("v1"))
         .and(warp::path("relay"))
         .and(warp::path::param())
         .and(warp::body::json())
-        .and(with_config(config_relay_put))
-        .and(with_storage(storage_relay_put))
+        .and(with_config(config.clone()))
+        .and(with_storage(storage.clone()))
         .and_then(handle_region_update);
 
-    let config_analytics = storage.clone();
     let get_analytics = warp::get()
         .and(warp::path("api"))
         .and(warp::path("v1"))
         .and(warp::path("analytics"))
-        .and(with_storage(config_analytics))
+        .and(with_storage(storage.clone()))
         .and_then(handle_analytics);
 
     let not_found = warp::any().map(|| "Not found");
 
-    let routes = find_config
+    let routes = base_path
+        .or(find_config)
         .or(get_analytics)
         .or(update_region_state)
         .or(not_found);
@@ -132,15 +138,18 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), ServerError> {
                                     });
                                 }
 
-                                // TODO What if wrong telegram conf ?
+                                let message = format!("Network DOWN on region {}", &region.name);
                                 if let (Some(telegram_token), Some(telegram_chat)) = (&server_conf.telegram_token, &server_conf.telegram_chat) {
-                                    let message = format!("Network DOWN on region {}", &region.name);
+                                    
                                     let options = TelegramOptions {
                                         disable_notifications: false
                                     };
                                     alert::alert_telegram(telegram_token, telegram_chat, &message, options).await.unwrap_or_else(|err| {
                                         eprintln!("Failed to trigger incident notification: {}", err);
                                     });
+                                }
+                                else {
+                                    alert::display_warning(&message);
                                 }
                             }
 

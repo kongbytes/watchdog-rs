@@ -8,6 +8,10 @@ pub struct TelegramOptions {
     pub disable_notifications: bool
 }
 
+pub fn display_warning(message: &str) {
+    eprintln!("[ALERTER FAILURE] {}", message);
+}
+
 pub async fn alert_telegram(token: &str, chat_id: &str, message: &str, options: TelegramOptions) -> Result<(), ServerError> {
 
     let formatted_message = str::replace(message, "-", "\\-");
