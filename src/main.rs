@@ -21,9 +21,14 @@ async fn main() {
             match server_matches.value_of("config") {
                 Some(config_path) => {
 
+                    let port: u16 = match server_matches.value_of("port") {
+                        Some(port) => port.parse().unwrap_or(engine::DEFAULT_PORT),
+                        None => engine::DEFAULT_PORT
+                    };
+
                     let server_conf = engine::ServerConf {
                         config_path: config_path.to_string(),
-                        port: 3030,
+                        port,
                         telegram_token: env::var("TELEGRAM_TOKEN").ok(),
                         telegram_chat: env::var("TELEGRAM_CHAT").ok()
                     };
@@ -112,6 +117,11 @@ fn build_args<'a, 'b>() -> clap::App<'a, 'b> {
                 .takes_value(true)
                 .help("YAML config path")
             )
+            .arg(Arg::with_name("port")
+                .short("p")
+                .long("port")
+                .takes_value(true)
+                .help("TCP port used by the server"))
         )
         .subcommand(App::new("relay")
             .about("Launch relay daemon")
