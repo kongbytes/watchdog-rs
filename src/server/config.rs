@@ -68,6 +68,20 @@ impl Config {
         self.regions.iter().find(|region| region.name.eq(region_name))
     }
 
+    pub fn has_medium(&self, medium_key: &str) -> bool {
+
+        for region in self.regions.iter() {
+            for group in region.groups.iter() {
+
+                if group.mediums.iter().any(|medium| medium == medium_key) {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
 }
 
 impl TryFrom<ConfigInput> for Config{

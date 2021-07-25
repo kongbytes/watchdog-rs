@@ -18,6 +18,8 @@ use crate::server::alert::{self, TelegramOptions};
 const DEFAULT_REGION_MS: i64 = 10 * 1000;
 const DEFAULT_GROUP_MS: i64 = 10 * 1000;
 
+pub const DEFAULT_PORT: u16 = 3030; 
+
 pub struct ServerConf {
 
     pub config_path: String,
@@ -33,6 +35,12 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), ServerError> {
     let storage = MemoryStorage::new();
 
     let base_config = Config::new(&server_conf.config_path)?;
+
+    if base_config.has_medium("telegram") && (server_conf.telegram_chat.is_none() || server_conf.telegram_token.is_none()) {
+        let error_message = "Current configuration is using telegram medium, but missing environment variables".to_string();
+        return Err(ServerError::basic(error_message));
+    }
+
     let config = Arc::new(base_config);
 
     init_storage_regions(storage.clone(), config.clone()).await;
