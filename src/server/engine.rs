@@ -5,10 +5,11 @@ use std::time::Duration;
 use std::convert::{TryInto, Infallible};
 
 use tokio::{signal, task, sync::oneshot, sync::RwLock};
-use warp::{Filter, http::Response};
+use warp::{Filter, http::Response, http::StatusCode, reply};
 use chrono::{Duration as ChronoDuration, Utc};
+use serde::Serialize;
 
-use crate::common::error::ServerError;
+use crate::common::error::Error;
 use crate::server::config::Config;
 use crate::server::storage::{MemoryStorage, Storage, RegionStatus, GroupStatus, GroupState, RegionState};
 use crate::relay::instance::GroupResult;
@@ -30,7 +31,15 @@ pub struct ServerConf {
 
 }
 
-pub async fn launch(server_conf: ServerConf) -> Result<(), ServerError> {
+#[derive(Serialize)]
+pub struct ServerErr {
+    
+    pub status: u16,
+    pub message: String
+
+}
+
+pub async fn launch(server_conf: ServerConf) -> Result<(), Error> {
 
     let storage = MemoryStorage::new();
 
@@ -38,7 +47,7 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), ServerError> {
 
     if base_config.has_medium("telegram") && (server_conf.telegram_chat.is_none() || server_conf.telegram_token.is_none()) {
         let error_message = "Current configuration is using telegram medium, but missing environment variables".to_string();
-        return Err(ServerError::basic(error_message));
+        return Err(Error::basic(error_message));
     }
 
     let config = Arc::new(base_config);
@@ -55,36 +64,40 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), ServerError> {
             .expect("Could not build base path response"));
 
     let find_config = warp::get()
-        .and(warp::path("api"))
-        .and(warp::path("v1"))
-        .and(warp::path("relay"))
-        .and(warp::path::param())
+        .and(warp::path!("api" / "v1" / "relay" / String))
         .and(with_config(config.clone()))
         .and_then(handle_get_config);
 
     let update_region_state = warp::put()
-        .and(warp::path("api"))
-        .and(warp::path("v1"))
-        .and(warp::path("relay"))
-        .and(warp::path::param())
+        .and(warp::path!("api" / "v1" / "relay" / String))
         .and(warp::body::json())
         .and(with_config(config.clone()))
         .and(with_storage(storage.clone()))
         .and_then(handle_region_update);
 
     let get_analytics = warp::get()
-        .and(warp::path("api"))
-        .and(warp::path("v1"))
-        .and(warp::path("analytics"))
+        .and(warp::path!("api" / "v1" / "analytics"))
         .and(with_storage(storage.clone()))
         .and_then(handle_analytics);
 
-    let not_found = warp::any().map(|| "Not found");
+    let find_incidents = warp::get()
+        .and(warp::path!("api" / "v1" / "incidents"))
+        .and(with_storage(storage.clone()))
+        .and_then(handle_find_incidents);
+
+    let get_incident = warp::get()
+        .and(warp::path!("api" / "v1" / "incidents" / u32))
+        .and(with_storage(storage.clone()))
+        .and_then(handle_get_incident);
+
+    let not_found = warp::any().and_then(handle_not_found);
 
     let routes = base_path
         .or(find_config)
         .or(get_analytics)
         .or(update_region_state)
+        .or(find_incidents)
+        .or(get_incident)
         .or(not_found);
 
     let (server_tx, server_rx) = oneshot::channel();
@@ -215,13 +228,13 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), ServerError> {
 
     });
 
-    signal::ctrl_c().await.map_err(|err| ServerError::new("Could not handle graceful shutdown signal", err))?;
+    signal::ctrl_c().await.map_err(|err| Error::new("Could not handle graceful shutdown signal", err))?;
     
     terminate_sheduler.store(true, Ordering::Relaxed);
     let _ = server_tx.send(());
 
-    web_handle.await.map_err(|err| ServerError::new("Could not end web task", err))?;
-    scheduler_handle.await.map_err(|err| ServerError::new("Could not end scheduler task", err))?;
+    web_handle.await.map_err(|err| Error::new("Could not end web task", err))?;
+    scheduler_handle.await.map_err(|err| Error::new("Could not end scheduler task", err))?;
 
     Ok(())
 }
@@ -301,5 +314,44 @@ async fn handle_analytics(storage: Storage) -> Result<impl warp::Reply, Infallib
 
     let regions = storage.read().await.compute_analytics();
 
-    return Ok(warp::reply::json(&regions));
+    Ok(warp::reply::json(&regions))
+}
+
+async fn handle_find_incidents(storage: Storage) -> Result<impl warp::Reply, Infallible> {
+
+    let incidents = storage.read().await.find_incidents();
+
+    Ok(warp::reply::json(&incidents))
+}
+
+async fn handle_get_incident(incident_id: u32, storage: Storage) -> Result<impl warp::Reply, Infallible> {
+
+    let incident_result = storage.read().await.get_incident(incident_id);
+
+    match incident_result {
+        Some(incident) => {
+
+            let json_response = reply::json(&incident);
+            Ok(reply::with_status(json_response, StatusCode::OK))
+        },
+        None => {
+
+            let error_body = ServerErr {
+                status: 404,
+                message: "Could not find incident".to_string()
+            };
+            let json_response = reply::json(&error_body);
+            Ok(reply::with_status(json_response, StatusCode::NOT_FOUND))
+        }
+    }
+}
+
+async fn handle_not_found() -> Result<impl warp::Reply, Infallible> {
+
+    let error_body = ServerErr {
+        status: 404,
+        message: "Could not find route".to_string()
+    };
+    let json_response = reply::json(&error_body);
+    Ok(reply::with_status(json_response, StatusCode::NOT_FOUND))
 }

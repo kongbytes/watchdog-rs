@@ -3,7 +3,7 @@ use std::convert::TryFrom;
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::error::ServerError;
+use crate::common::error::Error;
 
 // The 'input' models below will only be used once to parse the YAML
 // configuration file. This data is rather human-friendly and will not be used
@@ -55,12 +55,12 @@ pub struct Config {
 
 impl Config {
 
-    pub fn new(config_path: &str) -> Result<Config, ServerError> {
+    pub fn new(config_path: &str) -> Result<Config, Error> {
 
-        let contents = fs::read_to_string(config_path).map_err(|err| ServerError::new("Could not read configuration file", err))?;
-        let parsed_yaml: ConfigInput = serde_yaml::from_str(&contents).map_err(|err| ServerError::new("Could not parse YAML", err))?;
+        let contents = fs::read_to_string(config_path).map_err(|err| Error::new("Could not read configuration file", err))?;
+        let parsed_yaml: ConfigInput = serde_yaml::from_str(&contents).map_err(|err| Error::new("Could not parse YAML", err))?;
 
-        Config::try_from(parsed_yaml).map_err(|err| ServerError::new("Failed to parse config", err))
+        Config::try_from(parsed_yaml).map_err(|err| Error::new("Failed to parse config", err))
     }
 
     pub fn export_region(&self, region_name: &str) -> Option<&RegionConfig> {

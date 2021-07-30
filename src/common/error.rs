@@ -1,16 +1,16 @@
 use std::fmt::{Display, Formatter, Result};
 
 #[derive(Debug,Clone)]
-pub struct ServerError {
+pub struct Error {
     pub message: String,
     pub details: Option<String>
 }
 
-impl ServerError {
+impl Error {
 
     pub fn new(message: &'static str, details: impl Display) -> Self {
 
-        ServerError {
+        Error {
             message: message.to_string(),
             details: Some(details.to_string())
         }
@@ -18,7 +18,7 @@ impl ServerError {
 
     pub fn basic(message: String) -> Self {
 
-        ServerError {
+        Error {
             message,
             details: None
         }
@@ -26,34 +26,7 @@ impl ServerError {
 
 }
 
-impl Display for ServerError {
-
-    fn fmt(&self, f: &mut Formatter) -> Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-// ---
-
-#[derive(Debug,Clone)]
-pub struct RelayError {
-    pub message: String,
-    pub details: Option<String>
-}
-
-impl RelayError {
-
-    pub fn new(message: &'static str, details: impl Display) -> Self {
-
-        RelayError {
-            message: message.to_string(),
-            details: Some(details.to_string())
-        }
-    }
-
-}
-
-impl Display for RelayError {
+impl Display for Error {
 
     fn fmt(&self, f: &mut Formatter) -> Result {
         write!(f, "{}", self.message)

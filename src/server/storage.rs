@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use chrono::{DateTime, Utc};
 
-use crate::common::error::ServerError;
+use crate::common::error::Error;
 
 pub type Storage = Arc<RwLock<MemoryStorage>>;
 
@@ -42,6 +42,7 @@ pub struct GroupStatus {
 }
 
 pub struct IncidentRecord {
+    pub id: u32,
     pub message: String,
     pub timestamp: DateTime<Utc>
 }
@@ -50,7 +51,8 @@ pub struct MemoryStorage {
     region_storage: HashMap<String, RegionStatus>,
     region_metadata: HashMap<String, RegionMetadata>,
     group_storage: HashMap<String, GroupStatus>,
-    incidents: Vec<IncidentRecord>
+    incidents: Vec<IncidentRecord>,
+    last_incident_id: u32
 }
 
 #[derive(Deserialize,Serialize)]
@@ -76,6 +78,7 @@ pub struct GroupSummaryItem {
 
 #[derive(Deserialize,Serialize)]
 pub struct IncidentItem {
+    pub id: u32,
     pub message: String,
     pub timestamp: String
 }
@@ -88,7 +91,8 @@ impl MemoryStorage {
             region_storage: HashMap::new(),
             region_metadata: HashMap::new(),
             group_storage: HashMap::new(),
-            incidents: Vec::new()
+            incidents: Vec::new(),
+            last_incident_id: 0
         };
         Arc::new(RwLock::new(base_cache))
     }
@@ -124,6 +128,32 @@ impl MemoryStorage {
         self.group_storage.get(&group_key)
     }
 
+    pub fn find_incidents(&self) -> Vec<IncidentItem> {
+
+        let mut incidents: Vec<IncidentItem> = vec![];
+        for incident in &self.incidents {
+
+            incidents.push(IncidentItem {
+                id: incident.id,
+                message: incident.message.clone(),
+                timestamp: incident.timestamp.to_rfc3339()
+            })
+        }
+
+        incidents
+    }
+
+    pub fn get_incident(&self, incident_id: u32) -> Option<IncidentItem> {
+        
+        self.incidents.iter()
+            .find(|incident| incident.id == incident_id)
+            .map(|result| IncidentItem {
+                id: result.id,
+                message: result.message.clone(),
+                timestamp: result.timestamp.to_rfc3339()
+            })
+    }
+
     pub fn compute_analytics(&self) -> RegionSummary {
 
         let mut regions: Vec<RegionSummaryItem> = vec![];
@@ -156,14 +186,7 @@ impl MemoryStorage {
             });
         }
 
-        let mut incidents: Vec<IncidentItem> = vec![];
-        for incident in &self.incidents {
-
-            incidents.push(IncidentItem {
-                message: incident.message.clone(),
-                timestamp: incident.timestamp.to_rfc3339()
-            })
-        }
+        let incidents = self.find_incidents();
 
         RegionSummary {
             regions,
@@ -185,11 +208,11 @@ impl MemoryStorage {
         });
     }
 
-    pub fn trigger_region_incident(&mut self, region: &str) -> Result<(), ServerError> {
+    pub fn trigger_region_incident(&mut self, region: &str) -> Result<(), Error> {
 
         // TODO Should track incident end
 
-        let old_status = self.region_storage.get(region).ok_or_else(|| ServerError::basic(format!("Could not find region storage {}", region)))?;
+        let old_status = self.region_storage.get(region).ok_or_else(|| Error::basic(format!("Could not find region storage {}", region)))?;
 
         // The 'chrono UTC' type implements the 'Copy' trait and does not
         // require a clone() call, which simplifies ownership. 
@@ -200,7 +223,7 @@ impl MemoryStorage {
             updated_at
         });
 
-        let region_metadata = self.region_metadata.get(region).ok_or_else(|| ServerError::basic(format!("Could not find region metadata {}", region)))?;
+        let region_metadata = self.region_metadata.get(region).ok_or_else(|| Error::basic(format!("Could not find region metadata {}", region)))?;
         for impacted_group in &region_metadata.linked_groups {
 
             self.group_storage.insert(format!("{}.{}", region, impacted_group), GroupStatus {
@@ -210,19 +233,21 @@ impl MemoryStorage {
         }
 
         self.incidents.push(IncidentRecord {
+            id: self.last_incident_id,
             message: format!("Region {} is DOWN", region),
             timestamp: Utc::now()
         });
+        self.last_incident_id += 1;
 
         Ok(())
     }
 
-    pub fn refresh_group(&mut self, region: &str, group: &str, status: GroupState) -> Result<(), ServerError> {
+    pub fn refresh_group(&mut self, region: &str, group: &str, status: GroupState) -> Result<(), Error> {
 
         let group_key = format!("{}.{}", region, group);
         let updated_at = match status {
             GroupState::DOWN => {
-                let old_status = self.group_storage.get(&group_key).ok_or_else(|| ServerError::basic(format!("Could not find group storage {}", group_key)))?;
+                let old_status = self.group_storage.get(&group_key).ok_or_else(|| Error::basic(format!("Could not find group storage {}", group_key)))?;
                 old_status.updated_at
             },
             _ => Utc::now()
@@ -236,12 +261,12 @@ impl MemoryStorage {
         Ok(())
     }
 
-    pub fn trigger_group_incident(&mut self, region: &str, group: &str) -> Result<(), ServerError> {
+    pub fn trigger_group_incident(&mut self, region: &str, group: &str) -> Result<(), Error> {
 
         // TODO Should track incident end
 
         let group_key = format!("{}.{}", region, group);
-        let old_status = self.group_storage.get(&group_key).ok_or_else(|| ServerError::basic(format!("Could not find group storage {}", group_key)))?;
+        let old_status = self.group_storage.get(&group_key).ok_or_else(|| Error::basic(format!("Could not find group storage {}", group_key)))?;
 
         // The 'chrono UTC' type implements the 'Copy' trait and does not
         // require a clone() call, which simplifies ownership. 
@@ -254,9 +279,11 @@ impl MemoryStorage {
         });
 
         self.incidents.push(IncidentRecord {
+            id: self.last_incident_id,
             message: format!("Group {}.{} is DOWN", region, group),
             timestamp: Utc::now()
         });
+        self.last_incident_id += 1;
 
         Ok(())
     }

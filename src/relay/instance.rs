@@ -11,7 +11,7 @@ use tokio::process::Command;
 use reqwest::Client;
 
 use crate::server::config::RegionConfig;
-use crate::common::error::RelayError;
+use crate::common::error::Error;
 
 #[derive(Deserialize,Serialize)]
 pub struct GroupResult {
@@ -19,7 +19,7 @@ pub struct GroupResult {
     pub working: bool
 }
 
-pub async fn launch(base_url: String, token: String, region_name: String) -> Result<(), RelayError> {
+pub async fn launch(base_url: String, token: String, region_name: String) -> Result<(), Error> {
     
     let region_config = fetch_region_conf(&base_url, &token, &region_name).await?;
 
@@ -67,15 +67,15 @@ pub async fn launch(base_url: String, token: String, region_name: String) -> Res
 
     });
 
-    signal::ctrl_c().await.map_err(|err| RelayError::new("Could not handle graceful shutdown signal", err))?;
+    signal::ctrl_c().await.map_err(|err| Error::new("Could not handle graceful shutdown signal", err))?;
 
     is_ending.store(true, Ordering::Relaxed);
-    scheduler_task.await.map_err(|err| RelayError::new("Could not end scheduler task", err))?;
+    scheduler_task.await.map_err(|err| Error::new("Could not end scheduler task", err))?;
 
     Ok(())
 }
 
-async fn fetch_region_conf(base_url: &str, token: &str, region_name: &str) -> Result<RegionConfig, RelayError> {
+async fn fetch_region_conf(base_url: &str, token: &str, region_name: &str) -> Result<RegionConfig, Error> {
 
     let config_route = format!("{}/api/v1/relay/{}", base_url, region_name);
     let authorization_header = format!("Bearer {}", token);
@@ -86,22 +86,22 @@ async fn fetch_region_conf(base_url: &str, token: &str, region_name: &str) -> Re
         .header("Authorization", &authorization_header)
         .send()
         .await
-        .map_err(|err| RelayError::new("Could not fetch configuration from server", err))?;
+        .map_err(|err| Error::new("Could not fetch configuration from server", err))?;
 
     let body = http_response.text()
         .await
-        .map_err(|err| RelayError::new("Could not decode configuration from server", err))?;
+        .map_err(|err| Error::new("Could not decode configuration from server", err))?;
     
-    serde_json::from_str::<RegionConfig>(&body).map_err(|err| RelayError::new("Failed to decode JSON region config", err))
+    serde_json::from_str::<RegionConfig>(&body).map_err(|err| Error::new("Failed to decode JSON region config", err))
 }
 
-async fn update_region_state(base_url: &str, token: &str, region_name: &str, group_results: Vec<GroupResult>) -> Result<(), RelayError> {
+async fn update_region_state(base_url: &str, token: &str, region_name: &str, group_results: Vec<GroupResult>) -> Result<(), Error> {
 
     let update_route = format!("{}/api/v1/relay/{}", base_url, region_name);
     let authorization_header = format!("Bearer {}", token);
 
     let json_state = serde_json::to_string(&group_results)
-        .map_err(|err| RelayError::new("Could not parse region state to JSON", err))?;
+        .map_err(|err| Error::new("Could not parse region state to JSON", err))?;
 
     let http_client = reqwest::Client::new();
     http_client.put(&update_route)
@@ -110,7 +110,7 @@ async fn update_region_state(base_url: &str, token: &str, region_name: &str, gro
         .body(json_state)
         .send()
         .await
-        .map_err(|err| RelayError::new("Could not update region state", err))?;
+        .map_err(|err| Error::new("Could not update region state", err))?;
 
     Ok(())
 }

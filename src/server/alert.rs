@@ -2,7 +2,7 @@ use std::str;
 
 use reqwest::Client;
 
-use crate::common::error::ServerError;
+use crate::common::error::Error;
 
 pub struct TelegramOptions {
     pub disable_notifications: bool
@@ -12,7 +12,7 @@ pub fn display_warning(message: &str) {
     eprintln!("[ALERTER FAILURE] {}", message);
 }
 
-pub async fn alert_telegram(token: &str, chat_id: &str, message: &str, options: TelegramOptions) -> Result<(), ServerError> {
+pub async fn alert_telegram(token: &str, chat_id: &str, message: &str, options: TelegramOptions) -> Result<(), Error> {
 
     let formatted_message = str::replace(message, "-", "\\-");
 
@@ -27,7 +27,7 @@ pub async fn alert_telegram(token: &str, chat_id: &str, message: &str, options: 
     http_client.get(&notify_route)
         .send()
         .await
-        .map_err(|err| ServerError::new("Could not send message to Telegram API", err))?;
+        .map_err(|err| Error::new("Could not send message to Telegram API", err))?;
 
     Ok(())
 }
