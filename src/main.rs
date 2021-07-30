@@ -1,6 +1,7 @@
 mod common;
 mod relay;
 mod server;
+mod cli;
 
 use std::env;
 use std::process;
@@ -9,6 +10,8 @@ use clap::{Arg, App, AppSettings};
 
 use crate::server::engine;
 use crate::relay::instance;
+use crate::cli::incident;
+use crate::common::error::Error;
 
 #[tokio::main]
 async fn main() {
@@ -55,27 +58,12 @@ async fn main() {
         },
         ("relay", Some(relay_matches)) => {
 
-            let base_url = match env::var("WATCHDOG_ADDR") {
-                Ok(url_result) => url_result,
-                Err(_err) => {
-                    eprintln!("Expecting server base URL in the WATCHDOG_ADDR variable");
-                    eprintln!("Define an URL such as http://localhost:3030 in an environment variable");
-                    process::exit(1);
-                }
-            };
-            let token = match env::var("WATCHDOG_TOKEN") {
-                Ok(token_result) => token_result,
-                Err(_err) => {
-                    eprintln!("Expecting server token in the WATCHDOG_TOKEN variable");
-                    eprintln!("Define a token such as ******** in an environment variable");
-                    process::exit(1);
-                }
-            };
+            let (base_url, token) = extract_watchdog_env_or_fail();
 
             match relay_matches.value_of("region") {
                 Some(region_name) => {
 
-                    let relay_result = instance::launch(base_url, token,region_name.to_string()).await;
+                    let relay_result = instance::launch(base_url, token, region_name.to_string()).await;
 
                     if let Err(relay_err) = relay_result {
                         eprintln!("The watchdog relay process failed, see details below");
@@ -95,12 +83,56 @@ async fn main() {
 
         },
         ("silence", Some(_)) =>  (),
-        ("incident", Some(_)) => (),
+        ("incident", Some(incident_matches)) => {
+
+            let (base_url, token) = extract_watchdog_env_or_fail();
+            let mut cli_result: Result<(), Error> = Ok(());
+
+            if let Some(_) = incident_matches.subcommand_matches("ls") {
+                cli_result = incident::list_incidents(&base_url, &token).await;
+            }
+            else if let Some(x) = incident_matches.subcommand_matches("inspect") {
+                dbg!(&x.args);
+                cli_result = incident::inspect_incident("TODO").await;
+            }
+
+            if let Err(cli_error) = cli_result {
+                eprintln!("The incident CLI failed, see details below");
+                eprintln!("{}", cli_error);
+                if let Some(err_details) = cli_error.details {
+                    eprintln!("{}", err_details);
+                }
+                process::exit(1);
+            }
+            
+        },
         _ => {
             eprintln!("Could not find command to launch");
             process::exit(1)
         }
     };
+}
+
+fn extract_watchdog_env_or_fail() -> (String, String) {
+
+    let base_url = match env::var("WATCHDOG_ADDR") {
+        Ok(url_result) => url_result,
+        Err(_err) => {
+            eprintln!("Expecting server base URL in the WATCHDOG_ADDR variable");
+            eprintln!("Define an URL such as http://localhost:3030 in an environment variable");
+            process::exit(1);
+        }
+    };
+    let token = match env::var("WATCHDOG_TOKEN") {
+        Ok(token_result) => token_result,
+        Err(_err) => {
+            eprintln!("Expecting server token in the WATCHDOG_TOKEN variable");
+            eprintln!("Define a token such as ******** in an environment variable");
+            process::exit(1);
+        }
+    };
+
+    (base_url, token)
 }
 
 fn build_args<'a, 'b>() -> clap::App<'a, 'b> {
@@ -137,5 +169,15 @@ fn build_args<'a, 'b>() -> clap::App<'a, 'b> {
         )
         .subcommand(App::new("incident")
             .about("Manage incident history")
+            .setting(AppSettings::ArgRequiredElseHelp)
+            .subcommand(
+                App::new("ls")
+                    .about("List all incidents")
+            )
+            .subcommand(
+                App::new("inspect")
+                    .about("Inspect an incident")
+                    .alias("i")
+            )
         )
 }
