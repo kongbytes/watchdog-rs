@@ -5,7 +5,8 @@ use std::time::Duration;
 use std::convert::{TryInto, Infallible};
 
 use tokio::{signal, task, sync::oneshot, sync::RwLock};
-use warp::{Filter, http::Response, http::StatusCode, reply};
+use warp::{Filter, Rejection, Reply, http::Response, http::StatusCode, reply};
+use warp::reject::{MissingHeader, MethodNotAllowed, Reject};
 use chrono::{Duration as ChronoDuration, Utc};
 use serde::Serialize;
 
@@ -25,6 +26,7 @@ pub struct ServerConf {
 
     pub config_path: String,
     pub port: u16,
+    pub token: String,
 
     pub telegram_token: Option<String>,
     pub telegram_chat: Option<String>
@@ -37,6 +39,64 @@ pub struct ServerErr {
     pub status: u16,
     pub message: String
 
+}
+
+#[derive(Debug)]
+struct InvalidToken;
+impl Reject for InvalidToken {}
+
+async fn handle_rejection(err: Rejection) -> Result<impl Reply, Infallible> {
+    
+    let code;
+    let message;
+
+    if err.is_not_found() {
+        code = StatusCode::NOT_FOUND;
+        message = "API route not found";
+    } else if let Some(_) = err.find::<InvalidToken>() {
+        code = StatusCode::FORBIDDEN;
+        message = "API token is invalid";
+    } else if let Some(missing_header) = err.find::<MissingHeader>() {
+        if missing_header.name() == "authorization" {
+            code = StatusCode::UNAUTHORIZED;
+            message = "Missing API token in request"
+        } else {
+            code = StatusCode::BAD_REQUEST;
+            message = "Missing header in request";
+        }
+    }
+    else if let Some(_) = err.find::<MethodNotAllowed>() {
+        code = StatusCode::NOT_FOUND;
+        message = "API route not found";
+    }
+    else {
+        eprintln!("[ERR] Got an unhandled rejection: {:?}", err);
+        code = StatusCode::INTERNAL_SERVER_ERROR;
+        message = "Server side error, please retry later";
+    }
+
+    let json = warp::reply::json(&ServerErr {
+        status: code.as_u16(),
+        message: message.into(),
+    });
+    Ok(warp::reply::with_status(json, code))
+}
+
+fn check_authorization(token: &str) -> impl Filter<Extract = (), Error = warp::Rejection> + Clone {
+
+    let owned_token = token.to_string();
+    warp::header::<String>("authorization")
+        .map(move |auth_header: String| (owned_token.to_string(), auth_header))
+        .and_then(|(conf_token, auth_header): (String, String)| async move {
+
+            if auth_header != format!("Bearer {}", conf_token) {
+                return Err(warp::reject::custom(InvalidToken));
+            }
+
+            Ok(())
+    
+        })
+        .untuple_one()
 }
 
 pub async fn launch(server_conf: ServerConf) -> Result<(), Error> {
@@ -65,11 +125,13 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), Error> {
 
     let find_config = warp::get()
         .and(warp::path!("api" / "v1" / "relay" / String))
+        .and(check_authorization(&server_conf.token))
         .and(with_config(config.clone()))
         .and_then(handle_get_config);
 
     let update_region_state = warp::put()
         .and(warp::path!("api" / "v1" / "relay" / String))
+        .and(check_authorization(&server_conf.token))
         .and(warp::body::json())
         .and(with_config(config.clone()))
         .and(with_storage(storage.clone()))
@@ -77,20 +139,21 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), Error> {
 
     let get_analytics = warp::get()
         .and(warp::path!("api" / "v1" / "analytics"))
+        .and(check_authorization(&server_conf.token))
         .and(with_storage(storage.clone()))
         .and_then(handle_analytics);
 
     let find_incidents = warp::get()
         .and(warp::path!("api" / "v1" / "incidents"))
+        .and(check_authorization(&server_conf.token))
         .and(with_storage(storage.clone()))
         .and_then(handle_find_incidents);
 
     let get_incident = warp::get()
         .and(warp::path!("api" / "v1" / "incidents" / u32))
+        .and(check_authorization(&server_conf.token))
         .and(with_storage(storage.clone()))
         .and_then(handle_get_incident);
-
-    let not_found = warp::any().and_then(handle_not_found);
 
     let routes = base_path
         .or(find_config)
@@ -98,7 +161,7 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), Error> {
         .or(update_region_state)
         .or(find_incidents)
         .or(get_incident)
-        .or(not_found);
+        .recover(handle_rejection);
 
     let (server_tx, server_rx) = oneshot::channel();
 
@@ -352,14 +415,4 @@ async fn handle_get_incident(incident_id: u32, storage: Storage) -> Result<impl 
             Ok(reply::with_status(json_response, StatusCode::NOT_FOUND))
         }
     }
-}
-
-async fn handle_not_found() -> Result<impl warp::Reply, Infallible> {
-
-    let error_body = ServerErr {
-        status: 404,
-        message: "Could not find route".to_string()
-    };
-    let json_response = reply::json(&error_body);
-    Ok(reply::with_status(json_response, StatusCode::NOT_FOUND))
 }

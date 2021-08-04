@@ -28,10 +28,15 @@ async fn main() {
                         Some(port) => port.parse().unwrap_or(engine::DEFAULT_PORT),
                         None => engine::DEFAULT_PORT
                     };
+                    let token: String = env::var("WATCHDOG_TOKEN").ok().unwrap_or_else(|| {
+                        eprintln!("Expecting a WATCHDOG_TOKEN environment variable for API authentication");
+                        process::exit(1);
+                    });
 
                     let server_conf = engine::ServerConf {
                         config_path: config_path.to_string(),
                         port,
+                        token,
                         telegram_token: env::var("TELEGRAM_TOKEN").ok(),
                         telegram_chat: env::var("TELEGRAM_CHAT").ok()
                     };
