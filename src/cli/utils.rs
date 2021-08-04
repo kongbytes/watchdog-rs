@@ -1,5 +1,6 @@
 use reqwest::Client;
 use serde::de::DeserializeOwned;
+use chrono::DateTime;
 
 use crate::common::error::Error;
 
@@ -29,4 +30,13 @@ pub async fn api_get<T>(base_url: &str, token: &str, route: &str) -> Result<T, E
     let json_response = serde_json::from_str::<T>(&body).map_err(|err| Error::new("Failed to decode JSON response", err))?;
     
     Ok(json_response)
+}
+
+
+pub fn format_timestamp(timestamp: &str) -> String {
+
+    match DateTime::parse_from_rfc3339(&timestamp) {
+        Ok(datetime) => datetime.format("%Y-%m-%d %H:%M:%S").to_string(),
+        Err(_) => "invalid timestamp".to_string()
+    }
 }

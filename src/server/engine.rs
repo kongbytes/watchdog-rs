@@ -1,24 +1,17 @@
-use std::thread::sleep;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
-use std::convert::{TryInto, Infallible};
+use std::convert::Infallible;
 
 use tokio::{signal, task, sync::oneshot, sync::RwLock};
 use warp::{Filter, Rejection, Reply, http::Response, http::StatusCode, reply};
 use warp::reject::{MissingHeader, MethodNotAllowed, Reject};
-use chrono::{Duration as ChronoDuration, Utc};
 use serde::Serialize;
 
 use crate::common::error::Error;
 use crate::server::config::Config;
-use crate::server::storage::{MemoryStorage, Storage, RegionStatus, GroupStatus, GroupState, RegionState};
+use crate::server::storage::{MemoryStorage, Storage, GroupState, RegionState};
 use crate::relay::instance::GroupResult;
-use crate::server::alert::{self, TelegramOptions};
-
-// TODO Should review defaults
-const DEFAULT_REGION_MS: i64 = 10 * 1000;
-const DEFAULT_GROUP_MS: i64 = 10 * 1000;
+use crate::server::scheduler::launch_scheduler;
 
 pub const DEFAULT_PORT: u16 = 3030; 
 
@@ -53,7 +46,7 @@ async fn handle_rejection(err: Rejection) -> Result<impl Reply, Infallible> {
     if err.is_not_found() {
         code = StatusCode::NOT_FOUND;
         message = "API route not found";
-    } else if let Some(_) = err.find::<InvalidToken>() {
+    } else if err.find::<InvalidToken>().is_some() {
         code = StatusCode::FORBIDDEN;
         message = "API token is invalid";
     } else if let Some(missing_header) = err.find::<MissingHeader>() {
@@ -65,7 +58,7 @@ async fn handle_rejection(err: Rejection) -> Result<impl Reply, Infallible> {
             message = "Missing header in request";
         }
     }
-    else if let Some(_) = err.find::<MethodNotAllowed>() {
+    else if err.find::<MethodNotAllowed>().is_some() {
         code = StatusCode::NOT_FOUND;
         message = "API route not found";
     }
@@ -189,105 +182,7 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), Error> {
         println!("Use the 'relay --region name' command");
         println!();
     
-        loop {
-
-            if scheduler_terminate.load(Ordering::Relaxed) {
-                break;
-            }
-            
-            for region in scheduler_conf.regions.iter() {
-
-                let region_status: Option<RegionStatus>;
-                {
-                    let scheduler_read = scheduler_storage.read().await;
-                    region_status = scheduler_read.get_region_status(&region.name).map(|status| (*status).clone());
-                }
-
-                if let Some(status) = region_status {
-
-                    match status.status {
-                        RegionState::DOWN => (),
-                        RegionState::INITIAL => (),
-                        _ => {
-
-                            let region_ms: i64 = region.threshold_ms.try_into().unwrap_or(DEFAULT_REGION_MS);
-                            if Utc::now().signed_duration_since(status.updated_at) > ChronoDuration::milliseconds(region_ms) {
-                                
-                                println!("INCIDENT ON REGION {}", region.name);
-                                {
-                                    let mut sched_store_mut = scheduler_storage.write().await;
-                                    sched_store_mut.trigger_region_incident(&region.name).unwrap_or_else(|err| {
-                                        eprintln!("Failed to trigger incident in storage: {}", err);
-                                        eprintln!("This error will be ignored but can cause unstable storage");
-                                    });
-                                }
-
-                                let message = format!("Network DOWN on region {}", &region.name);
-                                if let (Some(telegram_token), Some(telegram_chat)) = (&server_conf.telegram_token, &server_conf.telegram_chat) {
-                                    
-                                    let options = TelegramOptions {
-                                        disable_notifications: false
-                                    };
-                                    alert::alert_telegram(telegram_token, telegram_chat, &message, options).await.unwrap_or_else(|err| {
-                                        eprintln!("Failed to trigger incident notification: {}", err);
-                                    });
-                                }
-                                else {
-                                    alert::display_warning(&message);
-                                }
-                            }
-
-                        }
-                    };
-                }
-
-                for group in region.groups.iter() {
-
-                    let group_status: Option<GroupStatus>;
-                    {
-                        let scheduler_read = scheduler_storage.read().await;
-                        group_status = scheduler_read.get_group_status(&region.name, &group.name).map(|status| (*status).clone());
-                    }
-
-                    if let Some(status) = group_status {
-
-                        match status.status {
-                            GroupState::UP | GroupState::INITIAL | GroupState::INCIDENT => (),
-                            GroupState::DOWN => {
-    
-                                let group_ms: i64 = group.threshold_ms.try_into().unwrap_or(DEFAULT_GROUP_MS);
-                                if Utc::now().signed_duration_since(status.updated_at) > ChronoDuration::milliseconds(group_ms) {
-                                    
-                                    println!("INCIDENT ON GROUP {}.{}", region.name, group.name);
-                                    {
-                                        // TODO Should trigger incident in logs
-                                        let mut sched_store_mut = scheduler_storage.write().await;
-                                        sched_store_mut.trigger_group_incident(&region.name, &group.name).unwrap_or_else(|err| {
-                                            eprintln!("Failed to trigger incident in storage: {}", err);
-                                            eprintln!("This error will be ignored but can cause unstable storage");
-                                        });
-                                    }
-    
-                                    // TODO What if wrong telegram conf ?
-                                    if let (Some(telegram_token), Some(telegram_chat)) = (&server_conf.telegram_token, &server_conf.telegram_chat) {
-                                        let message = format!("Network DOWN on group {}.{}", &region.name, &group.name);
-                                        let options = TelegramOptions {
-                                            disable_notifications: false
-                                        };
-                                        alert::alert_telegram(telegram_token, telegram_chat, &message, options).await.unwrap_or_else(|err| {
-                                            eprintln!("Failed to trigger incident notification: {}", err);
-                                        });
-                                    }
-                                }
-    
-                            }
-                        };
-                    }
-                }
-            }
-
-            sleep(Duration::from_secs(1));
-        }
+        launch_scheduler(scheduler_terminate, scheduler_conf, scheduler_storage, &server_conf).await;
 
     });
 
