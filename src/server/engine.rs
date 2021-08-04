@@ -289,6 +289,14 @@ async fn handle_region_update(region_name: String, results: Vec<GroupResult>, _c
                 false => GroupState::DOWN
             };
 
+            let current_status = write_lock.get_group_status(&region_name, &group.name).map(|state| state.status.clone());
+        
+            // If there is an incident on the group and the group is -still- not working,
+            // do not override values (can re-trigger incidents otherwise)
+            if matches!(current_status, Some(GroupState::INCIDENT)) && !group.working {
+                continue;
+            }
+
             write_lock.refresh_group(&region_name, &group.name, state).unwrap_or_else(|err| {
                 eprintln!("Could not refresh group, can cause unstable storage: {}", err);
             });
