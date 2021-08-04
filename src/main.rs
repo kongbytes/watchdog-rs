@@ -10,7 +10,7 @@ use clap::{Arg, App, AppSettings};
 
 use crate::server::engine;
 use crate::relay::instance;
-use crate::cli::incident;
+use crate::cli::{incident, status};
 use crate::common::error::Error;
 
 #[tokio::main]
@@ -82,29 +82,34 @@ async fn main() {
             };
 
         },
-        ("silence", Some(_)) =>  (),
+        ("status", _) =>  {
+
+            let (base_url, token) = extract_watchdog_env_or_fail();
+
+            let cli_result = status::display_status(&base_url, &token).await;
+            handle_cli_failure(cli_result);
+
+        },
         ("incident", Some(incident_matches)) => {
 
             let (base_url, token) = extract_watchdog_env_or_fail();
-            let mut cli_result: Result<(), Error> = Ok(());
 
-            if let Some(_) = incident_matches.subcommand_matches("ls") {
-                cli_result = incident::list_incidents(&base_url, &token).await;
-            }
-            else if let Some(x) = incident_matches.subcommand_matches("inspect") {
-                dbg!(&x.args);
-                cli_result = incident::inspect_incident("TODO").await;
-            }
-
-            if let Err(cli_error) = cli_result {
-                eprintln!("The incident CLI failed, see details below");
-                eprintln!("{}", cli_error);
-                if let Some(err_details) = cli_error.details {
-                    eprintln!("{}", err_details);
+            match incident_matches.subcommand() {
+                ("ls", _) => {
+                    let cli_result = incident::list_incidents(&base_url, &token).await;
+                    handle_cli_failure(cli_result);
+                },
+                ("get", Some(get_command)) => {
+                    let incident_id = get_command.subcommand_name().expect("Expecting at least an incident ID");
+                    let cli_result = incident::inspect_incident(&base_url, &token, incident_id).await;
+                    handle_cli_failure(cli_result);
+                },
+                _ => {
+                    eprintln!("Could not find command to launch");
+                    process::exit(1)
                 }
-                process::exit(1);
             }
-            
+
         },
         _ => {
             eprintln!("Could not find command to launch");
@@ -133,6 +138,18 @@ fn extract_watchdog_env_or_fail() -> (String, String) {
     };
 
     (base_url, token)
+}
+
+fn handle_cli_failure(cli_result: Result<(), Error>) {
+
+    if let Err(cli_error) = cli_result {
+        eprintln!("The watchdog command failed, see details below");
+        eprintln!("{}", cli_error);
+        if let Some(err_details) = cli_error.details {
+            eprintln!("{}", err_details);
+        }
+        process::exit(1);
+    }
 }
 
 fn build_args<'a, 'b>() -> clap::App<'a, 'b> {
@@ -164,8 +181,8 @@ fn build_args<'a, 'b>() -> clap::App<'a, 'b> {
                 .help("Network region covered by relay")
             )
         )
-        .subcommand(App::new("silence")
-            .about("Manage alert silences")
+        .subcommand(App::new("status")
+            .about("Status overview for all regions")
         )
         .subcommand(App::new("incident")
             .about("Manage incident history")
@@ -175,9 +192,11 @@ fn build_args<'a, 'b>() -> clap::App<'a, 'b> {
                     .about("List all incidents")
             )
             .subcommand(
-                App::new("inspect")
-                    .about("Inspect an incident")
-                    .alias("i")
+                App::new("get")
+                    .about("Get & inspect an incident")
+                    .setting(AppSettings::AllowExternalSubcommands)
+                    .setting(AppSettings::SubcommandRequiredElseHelp)
+                    .alias("get")
             )
         )
 }

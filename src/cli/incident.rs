@@ -1,32 +1,21 @@
-use reqwest::Client;
-
 use crate::common::error::Error;
 use crate::server::storage::IncidentItem;
+use super::utils::api_get;
 
 pub async fn list_incidents(base_url: &str, token: &str) -> Result<(), Error> {
 
-    let list_api = format!("{}/api/v1/incidents", base_url);
-    let authorization_header = format!("Bearer {}", token);
+    let raw_incidents: Vec<IncidentItem> = api_get(base_url, token, "api/v1/incidents").await?;
 
-    let http_client = Client::new();
-    let http_response = http_client.get(&list_api)
-        .header("Content-Type", "application/json")
-        .header("Authorization", &authorization_header)
-        .send()
-        .await
-        .map_err(|err| Error::new("An unknown network error triggered", err))?;
+    let incidents: Vec<IncidentItem> = raw_incidents.into_iter().map(|mut incident| {
 
-    let http_status = &http_response.status();
-    if http_status.is_client_error() || http_status.is_server_error() {
-        let status_err = Error::basic(format!("Expected HTTP response code OK, but received {}", http_status));
-        return Err(status_err);
-    }
+        let timestamp = chrono::DateTime::parse_from_rfc3339(&incident.timestamp).unwrap();
+        let formatted_time = timestamp.format("%Y-%m-%d %H:%M:%S");
 
-    let body = http_response.text()
-        .await
-        .map_err(|err| Error::new("Could not decode response from server", err))?;
-    
-    let incidents = serde_json::from_str::<Vec<IncidentItem>>(&body).map_err(|err| Error::new("Failed to decode JSON response", err))?;
+        incident.timestamp = formatted_time.to_string();
+
+        incident
+
+    }).collect();
 
     let mut timestamp_length = 15;
     let mut message_length = 15;
@@ -46,6 +35,7 @@ pub async fn list_incidents(base_url: &str, token: &str) -> Result<(), Error> {
     println!("|------|-{:-<h_max$}-|-{:-<v_max$}-|", "", "", h_max=timestamp_length, v_max=message_length);
 
     for incident in incidents.iter() {
+
         println!("| {: <4} | {: <h_max$} | {: <v_max$} |", incident.id, incident.timestamp, incident.message, h_max=timestamp_length, v_max=message_length);
     }
 
@@ -54,8 +44,21 @@ pub async fn list_incidents(base_url: &str, token: &str) -> Result<(), Error> {
     Ok(())
 }
 
-pub async fn inspect_incident(incident_id: &str) -> Result<(), Error> {
-    println!("Inspect");
-    dbg!(incident_id);
+pub async fn inspect_incident(base_url: &str, token: &str, incident_id: &str) -> Result<(), Error> {
+    
+    let incident_api = format!("api/v1/incidents/{}", incident_id);
+    let mut incident: IncidentItem = api_get(base_url, token, &incident_api).await?;
+    
+    let timestamp = chrono::DateTime::parse_from_rfc3339(&incident.timestamp).unwrap();
+    let formatted_time = timestamp.format("%Y-%m-%d %H:%M:%S");
+
+    incident.timestamp = formatted_time.to_string();
+
+    println!();
+    println!("Incident ID\t{}", incident.id);
+    println!("Name\t\t{}", incident.message);
+    println!("Timestamp\t{}", incident.timestamp);
+    println!();
+
     Ok(())
 }
