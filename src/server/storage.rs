@@ -11,18 +11,18 @@ pub type Storage = Arc<RwLock<MemoryStorage>>;
 
 #[derive(Clone)]
 pub enum RegionState {
-    INITIAL,
-    UP,
-    WARN,
-    DOWN
+    Initial,
+    Up,
+    Warn,
+    Down
 }
 
 #[derive(Clone)]
 pub enum GroupState {
-    INITIAL,
-    UP,
-    DOWN,
-    INCIDENT
+    Initial,
+    Up,
+    Down,
+    Incident
 }
 
 #[derive(Clone)]
@@ -100,7 +100,7 @@ impl MemoryStorage {
     pub fn init_region(&mut self, region: &str, linked_groups: Vec<String>) {
 
         self.region_storage.insert(region.to_string(), RegionStatus {
-            status: RegionState::INITIAL,
+            status: RegionState::Initial,
             updated_at: Utc::now(),
         });
         self.region_metadata.insert(region.to_string(), RegionMetadata {
@@ -113,7 +113,7 @@ impl MemoryStorage {
         let group_key = format!("{}.{}", region, group);
 
         self.group_storage.insert(group_key, GroupStatus {
-            status: GroupState::INITIAL,
+            status: GroupState::Initial,
             updated_at: Utc::now()
         });
     }
@@ -162,10 +162,10 @@ impl MemoryStorage {
             regions.push(RegionSummaryItem {
                 name: region_key.to_string(),
                 status: match region_value.status {
-                    RegionState::UP => "up".to_string(),
-                    RegionState::DOWN => "down".to_string(),
-                    RegionState::INITIAL => "initial".to_string(),
-                    RegionState::WARN => "warn".to_string()
+                    RegionState::Up => "up".to_string(),
+                    RegionState::Down => "down".to_string(),
+                    RegionState::Initial => "initial".to_string(),
+                    RegionState::Warn => "warn".to_string()
                 },
                 last_update: region_value.updated_at.to_rfc3339()
             });
@@ -177,10 +177,10 @@ impl MemoryStorage {
             groups.push(GroupSummaryItem {
                 name: group_key.to_string(),
                 status: match group_value.status {
-                    GroupState::UP => "up".to_string(),
-                    GroupState::DOWN => "down".to_string(),
-                    GroupState::INCIDENT => "incident".to_string(),
-                    GroupState::INITIAL => "initial".to_string()
+                    GroupState::Up => "up".to_string(),
+                    GroupState::Down => "down".to_string(),
+                    GroupState::Incident => "incident".to_string(),
+                    GroupState::Initial => "initial".to_string()
                 },
                 last_update: group_value.updated_at.to_rfc3339()
             });
@@ -201,8 +201,8 @@ impl MemoryStorage {
 
         self.region_storage.insert(region.to_string(), RegionStatus {
             status: match has_warnings {
-                true => RegionState::WARN,
-                false => RegionState::UP
+                true => RegionState::Warn,
+                false => RegionState::Up
             },
             updated_at: Utc::now()
         });
@@ -219,7 +219,7 @@ impl MemoryStorage {
         let updated_at = old_status.updated_at;
         
         self.region_storage.insert(region.to_string(), RegionStatus {
-            status: RegionState::DOWN,
+            status: RegionState::Down,
             updated_at
         });
 
@@ -227,7 +227,7 @@ impl MemoryStorage {
         for impacted_group in &region_metadata.linked_groups {
 
             self.group_storage.insert(format!("{}.{}", region, impacted_group), GroupStatus {
-                status: GroupState::INCIDENT,
+                status: GroupState::Incident,
                 updated_at: Utc::now()
             });
         }
@@ -246,7 +246,7 @@ impl MemoryStorage {
 
         let group_key = format!("{}.{}", region, group);
         let updated_at = match status {
-            GroupState::DOWN => {
+            GroupState::Down => {
                 let old_status = self.group_storage.get(&group_key).ok_or_else(|| Error::basic(format!("Could not find group storage {}", group_key)))?;
                 old_status.updated_at
             },
@@ -274,7 +274,7 @@ impl MemoryStorage {
         
         // Move to incident, this will avoid re-trigger alerts
         self.group_storage.insert(group_key, GroupStatus {
-            status: GroupState::INCIDENT,
+            status: GroupState::Incident,
             updated_at
         });
 

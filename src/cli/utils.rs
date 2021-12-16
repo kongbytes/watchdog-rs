@@ -35,7 +35,7 @@ pub async fn api_get<T>(base_url: &str, token: &str, route: &str) -> Result<T, E
 
 pub fn format_timestamp(timestamp: &str) -> String {
 
-    match DateTime::parse_from_rfc3339(&timestamp) {
+    match DateTime::parse_from_rfc3339(timestamp) {
         Ok(datetime) => datetime.format("%Y-%m-%d %H:%M:%S").to_string(),
         Err(_) => "invalid timestamp".to_string()
     }

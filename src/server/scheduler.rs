@@ -35,8 +35,8 @@ pub async fn launch_scheduler(terminate: Arc<AtomicBool>, conf: Arc<Config>, sto
             if let Some(status) = region_status {
 
                 match status.status {
-                    RegionState::DOWN => (),
-                    RegionState::INITIAL => (),
+                    RegionState::Down => (),
+                    RegionState::Initial => (),
                     _ => {
 
                         let region_ms: i64 = region.threshold_ms.try_into().unwrap_or(DEFAULT_REGION_MS);
@@ -81,8 +81,8 @@ pub async fn launch_scheduler(terminate: Arc<AtomicBool>, conf: Arc<Config>, sto
                 if let Some(status) = group_status {
 
                     match status.status {
-                        GroupState::UP | GroupState::INITIAL | GroupState::INCIDENT => (),
-                        GroupState::DOWN => {
+                        GroupState::Up | GroupState::Initial | GroupState::Incident => (),
+                        GroupState::Down => {
 
                             let group_ms: i64 = group.threshold_ms.try_into().unwrap_or(DEFAULT_GROUP_MS);
                             if Utc::now().signed_duration_since(status.updated_at) > ChronoDuration::milliseconds(group_ms) {

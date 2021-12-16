@@ -243,15 +243,15 @@ async fn handle_region_update(region_name: String, results: Vec<GroupResult>, _c
             }
 
             let state = match group.working {
-                true => GroupState::UP,
-                false => GroupState::DOWN
+                true => GroupState::Up,
+                false => GroupState::Down
             };
 
             let current_status = write_lock.get_group_status(&region_name, &group.name).map(|state| state.status.clone());
         
             // If there is an incident on the group and the group is -still- not working,
             // do not override values (can re-trigger incidents otherwise)
-            if matches!(current_status, Some(GroupState::INCIDENT)) && !group.working {
+            if matches!(current_status, Some(GroupState::Incident)) && !group.working {
                 continue;
             }
 
@@ -265,7 +265,7 @@ async fn handle_region_update(region_name: String, results: Vec<GroupResult>, _c
         if let Some(status) = region_status {
 
             // We already had an incident
-            if let RegionState::DOWN = status.status {
+            if let RegionState::Down = status.status {
                 println!("INCIDENT RESOLVED ON REGION {}", region_name);
             }
         }
@@ -273,7 +273,7 @@ async fn handle_region_update(region_name: String, results: Vec<GroupResult>, _c
         write_lock.refresh_region(&region_name, has_warning);
     }
 
-    return Ok(warp::reply::json(&"{}"));
+    Ok(warp::reply::json(&"{}"))
 }
 
 async fn handle_analytics(storage: Storage) -> Result<impl warp::Reply, Infallible> {

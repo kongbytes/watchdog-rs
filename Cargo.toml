@@ -2,7 +2,7 @@
 name = "watchdog-rs"
 version = "0.1.0"
 authors = ["Saluki"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 tokio = { version = "1.7.0", features = ["full"] }

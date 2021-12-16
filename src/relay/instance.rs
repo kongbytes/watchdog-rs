@@ -46,8 +46,18 @@ pub async fn launch(base_url: String, token: String, region_name: String) -> Res
                 for test in &group.tests {
 
                     let test_result = execute_test(test).await;
-                    if !test_result {
-                        is_group_working = false;
+
+                    match test_result {
+                        Ok(test) => {
+
+                            if !test {
+                                is_group_working = false;
+                            }
+                        },
+                        Err(err) => {
+                            eprintln!("{}", err);
+                            is_group_working = false;
+                        }
                     }
                 }
 
@@ -115,7 +125,7 @@ async fn update_region_state(base_url: &str, token: &str, region_name: &str, gro
     Ok(())
 }
 
-async fn execute_test(test: &str) -> bool {
+async fn execute_test(test: &str) -> Result<bool, Error> {
 
     if test.starts_with("ping") {
 
@@ -136,15 +146,19 @@ async fn execute_test(test: &str) -> bool {
                     .map(|status| status.success())
                     .unwrap_or(false);
 
-                return is_success;
+                Ok(is_success)
             }
-            None => false
+            None => {
+                let error_message = Error::new("Ping test failed", "The ping command expects a valid target"); 
+                Err(error_message)
+            }
         }
     }
 
     if test.starts_with("dns") {
-        //println!("Execute DNS test");
-        return true;    // TODO
+        // TODO
+        let error_message = Error::new("DNS test failed", "The 'dns' command is not supported yet"); 
+        return Err(error_message);
     }
 
     if test.starts_with("http") {
@@ -167,20 +181,24 @@ async fn execute_test(test: &str) -> bool {
 
                         let http_status = &response.status();
                         if http_status.is_client_error() || http_status.is_server_error() {
-                            return false;
+                            return Ok(false);
                         }
 
-                        return true;
+                        return Ok(true);
 
                     },
-                    Err(_) => false
+                    Err(_) => Ok(false)
                 }
             },
-            None => false
+            None => {
+                let error_message = Error::new("HTTP test failed", "The HTTP command expects a target"); 
+                Err(error_message)
+            }
         };
     }
 
-    return false;   // TODO
+    let error_message = format!("Test '{}' failed, command not found", test);
+    Err(Error::basic(error_message))
 }
 
 #[cfg(test)]
