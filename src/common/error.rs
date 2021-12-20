@@ -1,3 +1,4 @@
+use std::cmp::PartialEq;
 use std::fmt::{Display, Formatter, Result};
 
 #[derive(Debug,Clone)]
@@ -24,6 +25,13 @@ impl Error {
         }
     }
 
+}
+
+impl PartialEq for Error {
+
+    fn eq(&self, other: &Error) -> bool {
+        self.message == other.message && self.details == other.details
+    }
 }
 
 impl Display for Error {

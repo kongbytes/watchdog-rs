@@ -209,49 +209,53 @@ mod tests {
     #[tokio::test]
     async fn should_request_http_domain() {
         
-        assert_eq!(execute_test("http lasemo.be").await, true);
+        assert_eq!(execute_test("http lasemo.be").await, Ok(true));
     }
 
     #[tokio::test]
     async fn should_request_http_path() {
         
-        assert_eq!(execute_test("http www.lasemo.be/mentions-legales").await, true);
+        assert_eq!(execute_test("http www.lasemo.be/mentions-legales").await, Ok(true));
     }
 
     #[tokio::test]
     async fn should_fail_http_invalid_domain() {
         
-        assert_eq!(execute_test("http www.lasemo-does-not-exist.be").await, false);
+        assert_eq!(execute_test("http www.lasemo-does-not-exist.be").await, Ok(false));
     }
 
     #[tokio::test]
     async fn should_fail_http_unknown_page() {
         
-        assert_eq!(execute_test("http www.lasemo.be/unknown").await, false);
+        assert_eq!(execute_test("http www.lasemo.be/unknown").await, Ok(false));
     }
 
     #[tokio::test]
     async fn should_perform_valid_ping() {
         
-        assert_eq!(execute_test("ping 1.1.1.1").await, true);
+        assert_eq!(execute_test("ping 1.1.1.1").await, Ok(true));
     }
 
     #[tokio::test]
     async fn should_fail_invalid_ping() {
         
-        assert_eq!(execute_test("ping 10.99.99.99").await, false);
+        assert_eq!(execute_test("ping 10.99.99.99").await, Ok(false));
     }
 
     #[tokio::test]
     async fn should_fail_unknown_test_type() {
         
-        assert_eq!(execute_test("unknown").await, false);
+        assert_eq!(execute_test("unknown").await, Err(Error::basic(
+            "Test 'unknown' failed, command not found".to_string()
+        )));
     }
 
     #[tokio::test]
     async fn should_fail_empty_test() {
         
-        assert_eq!(execute_test("").await, false);
+        assert_eq!(execute_test("").await, Err(Error::basic(
+            "Test '' failed, command not found".to_string()
+        )));
     }
 
 }
