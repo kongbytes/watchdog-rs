@@ -1,15 +1,30 @@
 [package]
 name = "watchdog-rs"
+description = "Minimalist & multi-region network monitoring tool written in Rust"
+license = "AGPL-3.0-or-later"
 version = "0.1.0"
 authors = ["Saluki"]
 edition = "2021"
+readme = "README.md"
+homepage = "https://github.com/Saluki/watchdog-rs"
+repository = "https://github.com/Saluki/watchdog-rs"
+keywords = ["network", "monitoring", "multi-region"]
+categories = ["command-line-utilities"]
+exclude = ["/data", "/grafana", "/release.sh", ".*"]
 
 [dependencies]
+
+# Runtime
 tokio = { version = "1.7.0", features = ["full"] }
 warp = "0.3"
+
+# Parsing
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.8"
 serde_json = "1.0"
+
+# CLI & utilities
 clap = "2.33.3"
 reqwest = "0.11"
 chrono = "0.4"
+ansi_term = "0.12"
