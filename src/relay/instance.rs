@@ -209,25 +209,25 @@ mod tests {
     #[tokio::test]
     async fn should_request_http_domain() {
         
-        assert_eq!(execute_test("http lasemo.be").await, Ok(true));
+        assert_eq!(execute_test("http example.org").await, Ok(true));
     }
 
     #[tokio::test]
     async fn should_request_http_path() {
         
-        assert_eq!(execute_test("http www.lasemo.be/mentions-legales").await, Ok(true));
+        assert_eq!(execute_test("http github.com").await, Ok(true));
     }
 
     #[tokio::test]
     async fn should_fail_http_invalid_domain() {
         
-        assert_eq!(execute_test("http www.lasemo-does-not-exist.be").await, Ok(false));
+        assert_eq!(execute_test("http www.this-does-not-exist.be").await, Ok(false));
     }
 
     #[tokio::test]
     async fn should_fail_http_unknown_page() {
         
-        assert_eq!(execute_test("http www.lasemo.be/unknown").await, Ok(false));
+        assert_eq!(execute_test("http example.org/fail").await, Ok(false));
     }
 
     #[tokio::test]

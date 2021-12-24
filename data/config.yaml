@@ -1,5 +1,5 @@
 regions:
-  - name: lasemo-champs
+  - name: region-north
     interval: 5s
     threshold: 3
     groups:
@@ -7,8 +7,8 @@ regions:
         threshold: 4
         mediums: telegram
         tests:
-          - http www.lasemo.be
-  - name: lasemo-rh
+          - http example.org
+  - name: region-west
     interval: 5s
     threshold: 3
     groups:
@@ -16,8 +16,8 @@ regions:
         threshold: 4
         mediums: telegram
         tests:
-          - http www.lasemo.be
-  - name: lasemo-qg
+          - http example.org
+  - name: region-south
     interval: 5s
     threshold: 2
     groups:
@@ -26,8 +26,8 @@ regions:
         mediums: telegram
         tests:
           - ping 1.1.1.1
-          - dns www.lasemo.be
-          - http www.lasemo.be
+          - dns example.org
+          - http example.org
       - name: bars
         mediums: telegram
         threshold: 3

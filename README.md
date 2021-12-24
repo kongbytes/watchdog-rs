@@ -16,7 +16,7 @@ regions:
         threshold: 4 # Amount of zone failures tolerted before alert
         mediums: telegram # Alert mediums
         tests:
-          - http www.lasemo.be
+          - http www.domain.be
 ```
 
 Launch the main **monitoring server** that will be used by network regions to collect metrics. This service should be reachable by all network regions on port `3030`.
@@ -43,7 +43,7 @@ export WATCHDOG_ADDR=http://localhost:3030
 export WATCHDOG_TOKEN=x
 
 # Launch a watchdog network region relay
-watchdog relay --region lasemo-qg
+watchdog relay --region eu-west
 ```
 
 On your workstation, use the **CLI** to get details about the monitoring state & ongoing incidents.
