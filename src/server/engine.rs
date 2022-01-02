@@ -229,7 +229,7 @@ async fn handle_get_config(region_name: String, config: Arc<Config>) -> Result<i
     }   
 }
 
-async fn handle_region_update(region_name: String, results: Vec<GroupResult>, _config: Arc<Config>, storage: Storage) -> Result<impl warp::Reply, Infallible> {
+async fn handle_region_update(region_name: String, results: Vec<GroupResult>, config: Arc<Config>, storage: Storage) -> Result<impl warp::Reply, Infallible> {
 
     // TODO Blocking RW too long
     {
@@ -273,7 +273,15 @@ async fn handle_region_update(region_name: String, results: Vec<GroupResult>, _c
         write_lock.refresh_region(&region_name, has_warning);
     }
 
-    Ok(warp::reply::json(&"{}"))
+    let response = Response::builder()
+        .status(200)
+        .header("Cache-Control", "no-cache")
+        .header("Connection", "close")
+        .header("X-Watchdog-Update", &config.version)
+        .body("{}")
+        .unwrap();
+
+    Ok(response)
 }
 
 async fn handle_analytics(storage: Storage) -> Result<impl warp::Reply, Infallible> {

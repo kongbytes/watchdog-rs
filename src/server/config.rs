@@ -50,6 +50,7 @@ pub struct RegionConfig {
 
 #[derive(Deserialize,Serialize)]
 pub struct Config {
+    pub version: String,
     pub regions: Vec<RegionConfig>
 }
 
@@ -121,6 +122,8 @@ impl TryFrom<ConfigInput> for Config{
         }
 
         Ok(Config {
+            // TODO Better format
+            version: chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string(),
             regions
         })
     }

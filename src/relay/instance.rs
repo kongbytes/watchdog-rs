@@ -20,18 +20,27 @@ pub struct GroupResult {
 }
 
 pub async fn launch(base_url: String, token: String, region_name: String) -> Result<(), Error> {
-    
-    let region_config = fetch_region_conf(&base_url, &token, &region_name).await?;
 
     let is_ending = Arc::new(AtomicBool::new(false));
     let is_ending_task = is_ending.clone();
 
     let scheduler_task = task::spawn(async move {
 
+        let mut region_config = match fetch_region_conf(&base_url, &token, &region_name).await {
+            Ok(config) => config,
+            Err(_) => {
+                // TODO Should also exit process
+                println!("Failed conf");
+                return;
+            }
+        };
+
         println!();
         println!(" ✓ Watchdog relay is now UP");
         println!(" ✓ Found {} group(s) with a {}ms refresh interval", region_config.groups.len(), region_config.interval_ms, );
         println!();
+
+        let mut last_update = String::new();
 
         loop {
 
@@ -67,9 +76,22 @@ pub async fn launch(base_url: String, token: String, region_name: String) -> Res
                 });
             }
             
-            let update_result = update_region_state(&base_url, &token, &region_name, group_results).await;
-            if let Err(update_err) = update_result {
-                eprintln!("{}", update_err);
+            let update_result = update_region_state(&base_url, &token, &region_name, group_results, &last_update).await;
+            match update_result {
+                Ok(Some(watchdog_update)) => {
+
+                    if !last_update.is_empty() {
+                        region_config = fetch_region_conf(&base_url, &token, &region_name).await.unwrap();
+                        println!("Relay config reloaded");
+                    }
+
+                    last_update = watchdog_update;
+
+                },
+                Err(update_err) => {
+                    eprintln!("{}", update_err);
+                },
+                _ => {}
             }
 
             sleep(Duration::from_millis(region_config.interval_ms));
@@ -105,7 +127,7 @@ async fn fetch_region_conf(base_url: &str, token: &str, region_name: &str) -> Re
     serde_json::from_str::<RegionConfig>(&body).map_err(|err| Error::new("Failed to decode JSON region config", err))
 }
 
-async fn update_region_state(base_url: &str, token: &str, region_name: &str, group_results: Vec<GroupResult>) -> Result<(), Error> {
+async fn update_region_state(base_url: &str, token: &str, region_name: &str, group_results: Vec<GroupResult>, last_update: &str) -> Result<Option<String>, Error> {
 
     let update_route = format!("{}/api/v1/relay/{}", base_url, region_name);
     let authorization_header = format!("Bearer {}", token);
@@ -114,7 +136,7 @@ async fn update_region_state(base_url: &str, token: &str, region_name: &str, gro
         .map_err(|err| Error::new("Could not parse region state to JSON", err))?;
 
     let http_client = reqwest::Client::new();
-    http_client.put(&update_route)
+    let response = http_client.put(&update_route)
         .header("Content-Type", "application/json")
         .header("Authorization", &authorization_header)
         .body(json_state)
@@ -122,7 +144,16 @@ async fn update_region_state(base_url: &str, token: &str, region_name: &str, gro
         .await
         .map_err(|err| Error::new("Could not update region state", err))?;
 
-    Ok(())
+    if let Some(header_value) = response.headers().get("X-Watchdog-Update") {
+
+        let watchdog_update = header_value.to_str().unwrap_or("unknown");
+
+        if watchdog_update != last_update {
+            return Ok(Some(watchdog_update.to_string()))
+        }
+    }
+
+    Ok(None)
 }
 
 async fn execute_test(test: &str) -> Result<bool, Error> {

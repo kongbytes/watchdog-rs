@@ -68,6 +68,9 @@ watchdog status
 
 ## Roadmap
 
+Docs
+- Production setup
+
 CLI
 - Complete existing CLI commands
 - Server management (alerters, external IP, ...)
@@ -80,6 +83,7 @@ Server
 Relay
 - Auto-detect config changes
 - Add commands (TCP, UDP, ARP, ...)
+- Custom command (track UPS failure, ...)
 - Add metrics (HTTP latency, ...)
 
 Docs & more

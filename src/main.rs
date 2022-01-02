@@ -13,6 +13,7 @@ use crate::relay::instance;
 use crate::cli::{incident, status};
 use crate::common::error::Error;
 
+// TODO Should not launch Tokio for CLI
 #[tokio::main]
 async fn main() {
 
