@@ -6,7 +6,7 @@ mod cli;
 use std::env;
 use std::process;
 
-use clap::{Arg, App, AppSettings};
+use clap::{Arg, Command};
 
 use crate::server::engine;
 use crate::relay::instance;
@@ -20,12 +20,12 @@ async fn main() {
     let matches = build_args().get_matches();
 
     match matches.subcommand() {
-        ("server", Some(server_matches)) => {
+        Some(("server", server_matches)) => {
 
-            match server_matches.value_of("config") {
+            match server_matches.get_one::<String>("config") {
                 Some(config_path) => {
 
-                    let port: u16 = match server_matches.value_of("port") {
+                    let port: u16 = match server_matches.get_one::<String>("port") {
                         Some(port) => port.parse().unwrap_or(engine::DEFAULT_PORT),
                         None => engine::DEFAULT_PORT
                     };
@@ -62,11 +62,11 @@ async fn main() {
             };
             
         },
-        ("relay", Some(relay_matches)) => {
+        Some(("relay", relay_matches)) => {
 
             let (base_url, token) = extract_watchdog_env_or_fail();
 
-            match relay_matches.value_of("region") {
+            match relay_matches.get_one::<String>("region") {
                 Some(region_name) => {
 
                     let relay_result = instance::launch(base_url, token, region_name.to_string()).await;
@@ -88,7 +88,7 @@ async fn main() {
             };
 
         },
-        ("status", _) =>  {
+        Some(("status", _)) =>  {
 
             let (base_url, token) = extract_watchdog_env_or_fail();
 
@@ -96,16 +96,16 @@ async fn main() {
             handle_cli_failure(cli_result);
 
         },
-        ("incident", Some(incident_matches)) => {
+        Some(("incident", incident_matches)) => {
 
             let (base_url, token) = extract_watchdog_env_or_fail();
 
             match incident_matches.subcommand() {
-                ("ls", _) => {
+                Some(("ls", _)) => {
                     let cli_result = incident::list_incidents(&base_url, &token).await;
                     handle_cli_failure(cli_result);
                 },
-                ("get", Some(get_command)) => {
+                Some(("get", get_command)) => {
                     let incident_id = get_command.subcommand_name().expect("Expecting at least an incident ID");
                     let cli_result = incident::inspect_incident(&base_url, &token, incident_id).await;
                     handle_cli_failure(cli_result);
@@ -158,50 +158,50 @@ fn handle_cli_failure(cli_result: Result<(), Error>) {
     }
 }
 
-fn build_args<'a, 'b>() -> clap::App<'a, 'b> {
+fn build_args<'a>() -> clap::Command<'a> {
 
-    App::new("Network watchdog")
-        .version("0.1.0")
+    Command::new("Network watchdog")
+        .version("0.2.0")
         .about("Detect network incidents accross regions")
-        .setting(AppSettings::ArgRequiredElseHelp)
-        .subcommand(App::new("server")
+        .arg_required_else_help(true)
+        .subcommand(Command::new("server")
             .about("Launch server daemon")
-            .arg(Arg::with_name("config")
-                .short("c")
+            .arg(Arg::new("config")
+                .short('c')
                 .long("config")
                 .takes_value(true)
                 .help("YAML config path")
             )
-            .arg(Arg::with_name("port")
-                .short("p")
+            .arg(Arg::new("port")
+                .short('p')
                 .long("port")
                 .takes_value(true)
                 .help("TCP port used by the server"))
         )
-        .subcommand(App::new("relay")
+        .subcommand(Command::new("relay")
             .about("Launch relay daemon")
-            .arg(Arg::with_name("region")
-                .short("r")
+            .arg(Arg::new("region")
+                .short('r')
                 .long("region")
                 .takes_value(true)
                 .help("Network region covered by relay")
             )
         )
-        .subcommand(App::new("status")
+        .subcommand(Command::new("status")
             .about("Status overview for all regions")
         )
-        .subcommand(App::new("incident")
+        .subcommand(Command::new("incident")
             .about("Manage incident history")
-            .setting(AppSettings::ArgRequiredElseHelp)
+            .arg_required_else_help(true)
             .subcommand(
-                App::new("ls")
+                Command::new("ls")
                     .about("List all incidents")
             )
             .subcommand(
-                App::new("get")
+                Command::new("get")
                     .about("Get & inspect an incident")
-                    .setting(AppSettings::AllowExternalSubcommands)
-                    .setting(AppSettings::SubcommandRequiredElseHelp)
+                    .allow_external_subcommands(true)
+                    .arg_required_else_help(true)
                     .alias("get")
             )
         )

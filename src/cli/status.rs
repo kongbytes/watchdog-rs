@@ -9,7 +9,7 @@ pub async fn display_status(base_url: &str, token: &str) -> Result<(), Error> {
 
     let region_summary: RegionSummary = api_get(base_url, token, "api/v1/analytics").await?;
 
-    println!("");
+    println!();
     for region_item in region_summary.regions.iter() {
 
         let formatted_date: String = match &(region_item.last_update).parse::<DateTime<Utc>>() {
@@ -33,7 +33,7 @@ pub async fn display_status(base_url: &str, token: &str) -> Result<(), Error> {
                 continue;
             }
 
-            let group_name = match group.name.split(".").last() {
+            let group_name = match group.name.split('.').last() {
                 Some(name) => format!("Zone {}", name),
                 None => group.name.to_string()
             };
@@ -49,7 +49,7 @@ pub async fn display_status(base_url: &str, token: &str) -> Result<(), Error> {
             println!(" - {: <n_max$}{: <s_max$}", group_name, group_status, n_max=24, s_max=30);
             
         }
-        println!("");
+        println!();
     }
 
     Ok(())
