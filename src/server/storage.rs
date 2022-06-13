@@ -44,7 +44,9 @@ pub struct GroupStatus {
 pub struct IncidentRecord {
     pub id: u32,
     pub message: String,
-    pub timestamp: DateTime<Utc>
+    pub timestamp: DateTime<Utc>,
+    pub error_message: Option<String>,
+    pub error_details: Option<String>
 }
 
 pub struct MemoryStorage {
@@ -80,7 +82,9 @@ pub struct GroupSummaryItem {
 pub struct IncidentItem {
     pub id: u32,
     pub message: String,
-    pub timestamp: String
+    pub timestamp: String,
+    pub error_message: Option<String>,
+    pub error_details: Option<String>
 }
 
 impl MemoryStorage {
@@ -136,7 +140,9 @@ impl MemoryStorage {
             incidents.push(IncidentItem {
                 id: incident.id,
                 message: incident.message.clone(),
-                timestamp: incident.timestamp.to_rfc3339()
+                timestamp: incident.timestamp.to_rfc3339(),
+                error_message: incident.error_message.clone(),
+                error_details: incident.error_details.clone()
             })
         }
 
@@ -150,7 +156,9 @@ impl MemoryStorage {
             .map(|result| IncidentItem {
                 id: result.id,
                 message: result.message.clone(),
-                timestamp: result.timestamp.to_rfc3339()
+                timestamp: result.timestamp.to_rfc3339(),
+                error_message: result.error_message.clone(),
+                error_details: result.error_details.clone()
             })
     }
 
@@ -235,7 +243,9 @@ impl MemoryStorage {
         self.incidents.push(IncidentRecord {
             id: self.last_incident_id,
             message: format!("Region {} is DOWN", region),
-            timestamp: Utc::now()
+            timestamp: Utc::now(),
+            error_message: Some("Incident triggered at the region level".to_string()),
+            error_details: None
         });
         self.last_incident_id += 1;
 
@@ -281,7 +291,9 @@ impl MemoryStorage {
         self.incidents.push(IncidentRecord {
             id: self.last_incident_id,
             message: format!("Group {}.{} is DOWN", region, group),
-            timestamp: Utc::now()
+            timestamp: Utc::now(),
+            error_message: Some("Incident triggered at the group level".to_string()),
+            error_details: None
         });
         self.last_incident_id += 1;
 

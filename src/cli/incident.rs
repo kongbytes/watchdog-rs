@@ -13,6 +13,7 @@ pub async fn list_incidents(base_url: &str, token: &str) -> Result<(), Error> {
 
     let mut timestamp_length = 15;
     let mut message_length = 15;
+    let mut error_length = 15;
     for incident in incidents.iter() {
 
         if incident.timestamp.len() > timestamp_length {
@@ -22,14 +23,23 @@ pub async fn list_incidents(base_url: &str, token: &str) -> Result<(), Error> {
         if incident.message.len() > message_length {
             message_length = incident.message.len();
         }
+
+        if let Some(error_message) = incident.error_message.as_ref() {
+            if error_message.len() > error_length {
+                error_length = error_message.len();
+            }
+        }
     }
 
     println!();
-    println!("| ID   | {: <h_max$} | {: <v_max$} |", "Timestamp", "Message", h_max=timestamp_length, v_max=message_length);
-    println!("|------|-{:-<h_max$}-|-{:-<v_max$}-|", "", "", h_max=timestamp_length, v_max=message_length);
+    println!("| ID   | {: <h_max$} | {: <v_max$} | {: <e_max$} |", "Timestamp", "Message", "Details", h_max=timestamp_length, v_max=message_length, e_max=error_length);
+    println!("|------|-{:-<h_max$}-|-{:-<v_max$}-|-{:-<e_max$}-|", "", "", "", h_max=timestamp_length, v_max=message_length, e_max=error_length);
 
     for incident in incidents.iter() {
-        println!("| {: <4} | {: <h_max$} | {: <v_max$} |", incident.id, incident.timestamp, incident.message, h_max=timestamp_length, v_max=message_length);
+    
+        let empty_message = "no_message".to_string();
+        let error_message = incident.error_message.as_ref().unwrap_or(&empty_message);
+        println!("| {: <4} | {: <h_max$} | {: <v_max$} | {: <e_max$} |", incident.id, incident.timestamp, incident.message, error_message, h_max=timestamp_length, v_max=message_length, e_max=error_length);
     }
     println!();
 

@@ -16,7 +16,9 @@ use crate::common::error::Error;
 #[derive(Deserialize,Serialize)]
 pub struct GroupResult {
     pub name: String,
-    pub working: bool
+    pub working: bool,
+    pub error_message: Option<String>,
+    pub error_detail: Option<String>
 }
 
 pub async fn launch(base_url: String, token: String, region_name: String) -> Result<(), Error> {
@@ -52,6 +54,9 @@ pub async fn launch(base_url: String, token: String, region_name: String) -> Res
             for group in &region_config.groups {
     
                 let mut is_group_working = true;
+                let mut error_message = None;
+                let mut error_detail = None;
+
                 for test in &group.tests {
 
                     let test_result = execute_test(test).await;
@@ -66,13 +71,17 @@ pub async fn launch(base_url: String, token: String, region_name: String) -> Res
                         Err(err) => {
                             eprintln!("{}", err);
                             is_group_working = false;
+                            error_message = Some(err.message);
+                            error_detail = err.details;
                         }
                     }
                 }
 
                 group_results.push(GroupResult {
                     name: group.name.clone(),
-                    working: is_group_working
+                    working: is_group_working,
+                    error_message,
+                    error_detail
                 });
             }
             
