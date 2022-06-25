@@ -244,7 +244,7 @@ impl MemoryStorage {
             id: self.last_incident_id,
             message: format!("Region {} is DOWN", region),
             timestamp: Utc::now(),
-            error_message: Some("Incident triggered at the region level".to_string()),
+            error_message: Some("Region relay has not sent heartbeat in time (threshold exceeded)".to_string()),
             error_details: None
         });
         self.last_incident_id += 1;

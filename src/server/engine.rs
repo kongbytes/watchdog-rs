@@ -167,7 +167,7 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), Error> {
     let web_handle = task::spawn(server);
 
     println!();
-    println!(" ✓ Watchdog monitoring API is UP");
+    println!(" ✓ Watchdog monitoring API is UP (port {})", server_conf.port);
 
     let terminate_sheduler = Arc::new(AtomicBool::new(false));
 

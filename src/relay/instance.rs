@@ -2,7 +2,7 @@ use std::time::Duration;
 use std::thread::sleep;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::process::Stdio;
+use std::process::{self, Stdio};
 
 use serde::{Deserialize, Serialize};
 use tokio::signal;
@@ -30,10 +30,13 @@ pub async fn launch(base_url: String, token: String, region_name: String) -> Res
 
         let mut region_config = match fetch_region_conf(&base_url, &token, &region_name).await {
             Ok(config) => config,
-            Err(_) => {
-                // TODO Should also exit process
-                println!("Failed conf");
-                return;
+            Err(err) => {
+                let error_detail = match &err.details {
+                    Some(details) => details,
+                    None => "No details"
+                };
+                eprintln!("Could not fetch configuration from Watchdog API: {} ({})", err, error_detail);
+                process::exit(1);
             }
         };
 
@@ -128,6 +131,12 @@ async fn fetch_region_conf(base_url: &str, token: &str, region_name: &str) -> Re
         .send()
         .await
         .map_err(|err| Error::new("Could not fetch configuration from server", err))?;
+
+    if http_response.status() != 200 {
+        return Err(
+            Error::basic(format!("Expected status code 200, found {}", http_response.status()))
+        );
+    }
 
     let body = http_response.text()
         .await
