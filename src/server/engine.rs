@@ -99,7 +99,7 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), Error> {
     let base_config = Config::new(&server_conf.config_path)?;
 
     if base_config.has_medium("telegram") && (server_conf.telegram_chat.is_none() || server_conf.telegram_token.is_none()) {
-        let error_message = "Current configuration is using telegram medium, but missing environment variables".to_string();
+        let error_message = "Current configuration is using telegram medium, but missing environment variables (TELEGRAM_CHAT/TELEGRAM_TOKEN)".to_string();
         return Err(Error::basic(error_message));
     }
 
