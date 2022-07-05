@@ -40,3 +40,15 @@ impl Display for Error {
         write!(f, "{}", self.message)
     }
 }
+
+impl From<serde_yaml::Error> for Error {
+
+    fn from(yaml_error: serde_yaml::Error) -> Error {
+        
+        Error {
+            message: yaml_error.to_string(),
+            details: None
+        }
+    }
+
+}

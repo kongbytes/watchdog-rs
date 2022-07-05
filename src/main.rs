@@ -10,7 +10,7 @@ use clap::{Arg, Command};
 
 use crate::server::engine;
 use crate::relay::instance;
-use crate::cli::{incident, status};
+use crate::cli::{incident, status, init};
 use crate::common::error::Error;
 
 // TODO Should not launch Tokio for CLI
@@ -20,6 +20,12 @@ async fn main() {
     let matches = build_args().get_matches();
 
     match matches.subcommand() {
+        Some(("init", _)) =>  {
+
+            let cli_result = init::init_config();
+            handle_cli_failure(cli_result);
+
+        },
         Some(("server", server_matches)) => {
 
             match server_matches.get_one::<String>("config") {
@@ -164,6 +170,9 @@ fn build_args<'a>() -> clap::Command<'a> {
         .version("0.2.0")
         .about("Detect network incidents accross regions")
         .arg_required_else_help(true)
+        .subcommand(Command::new("init")
+            .about("Initialize config")
+        )
         .subcommand(Command::new("server")
             .about("Launch server daemon")
             .arg(Arg::new("config")

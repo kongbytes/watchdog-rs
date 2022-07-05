@@ -7,9 +7,9 @@ use crate::common::error::Error;
 
 // The 'input' models below will only be used once to parse the YAML
 // configuration file. This data is rather human-friendly and will not be used
-// accross watchdog services (see below).
+// accross watchdog services, except for the init CLI (see below).
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct GroupConfigInput {
     pub name: String,
     pub threshold: u64,
@@ -17,7 +17,7 @@ pub struct GroupConfigInput {
     pub tests: Vec<String>
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct RegionConfigInput {
     pub name: String,
     pub interval: String,
@@ -25,7 +25,7 @@ pub struct RegionConfigInput {
     pub groups: Vec<GroupConfigInput>
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct ConfigInput {
     pub regions: Vec<RegionConfigInput>
 }
