@@ -11,20 +11,21 @@ repository = "https://github.com/Saluki/watchdog-rs"
 keywords = ["network", "monitoring", "multi-region"]
 categories = ["command-line-utilities"]
 exclude = ["/data", "/grafana", "/release.sh", ".*"]
+rust-version = "1.64"
 
 [dependencies]
 
 # Runtime
-tokio = { version = "1.19.0", features = ["full"] }
+tokio = { version = "1.27.0", features = ["full"] }
 warp = "0.3"
 
 # Parsing
 serde = { version = "1.0", features = ["derive"] }
-serde_yaml = "0.8"
+serde_yaml = "0.9"
 serde_json = "1.0"
 
 # CLI & utilities
-clap = "3.2"
+clap = "4.2"
 reqwest = "0.11"
 chrono = "0.4"
 ansi_term = "0.12"

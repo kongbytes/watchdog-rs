@@ -164,7 +164,7 @@ fn handle_cli_failure(cli_result: Result<(), Error>) {
     }
 }
 
-fn build_args<'a>() -> clap::Command<'a> {
+fn build_args() -> clap::Command {
 
     Command::new("Network watchdog")
         .version("0.2.0")
@@ -178,13 +178,11 @@ fn build_args<'a>() -> clap::Command<'a> {
             .arg(Arg::new("config")
                 .short('c')
                 .long("config")
-                .takes_value(true)
                 .help("YAML config path")
             )
             .arg(Arg::new("port")
                 .short('p')
                 .long("port")
-                .takes_value(true)
                 .help("TCP port used by the server"))
         )
         .subcommand(Command::new("relay")
@@ -192,7 +190,6 @@ fn build_args<'a>() -> clap::Command<'a> {
             .arg(Arg::new("region")
                 .short('r')
                 .long("region")
-                .takes_value(true)
                 .help("Network region covered by relay")
             )
         )
