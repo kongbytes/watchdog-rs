@@ -191,6 +191,7 @@ fn build_args() -> clap::Command {
                 .short('r')
                 .long("region")
                 .help("Network region covered by relay")
+                .required(true)
             )
         )
         .subcommand(Command::new("status")
