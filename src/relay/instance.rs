@@ -2,21 +2,21 @@ use std::time::Duration;
 use std::thread::sleep;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::process::{self, Stdio};
 
 use serde::{Deserialize, Serialize};
 use tokio::signal;
 use tokio::task;
-use tokio::process::Command;
-use reqwest::Client;
 
 use crate::server::config::RegionConfig;
 use crate::common::error::Error;
 
+use super::tests::execute_test;
+
 #[derive(Deserialize,Serialize)]
-pub struct GroupResult {
+pub struct GroupResultInput {
     pub name: String,
     pub working: bool,
+    pub has_warnings: bool,
     pub error_message: Option<String>,
     pub error_detail: Option<String>
 }
@@ -30,14 +30,10 @@ pub async fn launch(base_url: String, token: String, region_name: String) -> Res
 
         let mut region_config = match fetch_region_conf(&base_url, &token, &region_name).await {
             Ok(config) => config,
-            Err(err) => {
-                let error_detail = match &err.details {
-                    Some(details) => details,
-                    None => "No details"
-                };
-                eprintln!("Could not fetch configuration from Watchdog API: {} ({})", err, error_detail);
-                process::exit(1);
-            }
+            Err(err) => err.exit(
+                "Could not fetch configuration from Watchdog API",
+                "Check your token and region name"
+            )
         };
 
         println!();
@@ -53,10 +49,11 @@ pub async fn launch(base_url: String, token: String, region_name: String) -> Res
                 break;
             }
             
-            let mut group_results: Vec<GroupResult> = vec![];
+            let mut group_results: Vec<GroupResultInput> = vec![];
             for group in &region_config.groups {
     
                 let mut is_group_working = true;
+                let mut has_group_warnings: bool = false;
                 let mut error_message = None;
                 let mut error_detail = None;
 
@@ -67,9 +64,14 @@ pub async fn launch(base_url: String, token: String, region_name: String) -> Res
                     match test_result {
                         Ok(test) => {
 
-                            if !test {
+                            if !test.is_success {
                                 is_group_working = false;
                             }
+
+                            if test.has_warning {
+                                has_group_warnings = true;
+                            }
+
                         },
                         Err(err) => {
                             eprintln!("{}", err);
@@ -80,9 +82,10 @@ pub async fn launch(base_url: String, token: String, region_name: String) -> Res
                     }
                 }
 
-                group_results.push(GroupResult {
+                group_results.push(GroupResultInput {
                     name: group.name.clone(),
                     working: is_group_working,
+                    has_warnings: has_group_warnings,
                     error_message,
                     error_detail
                 });
@@ -145,7 +148,7 @@ async fn fetch_region_conf(base_url: &str, token: &str, region_name: &str) -> Re
     serde_json::from_str::<RegionConfig>(&body).map_err(|err| Error::new("Failed to decode JSON region config", err))
 }
 
-async fn update_region_state(base_url: &str, token: &str, region_name: &str, group_results: Vec<GroupResult>, last_update: &str) -> Result<Option<String>, Error> {
+async fn update_region_state(base_url: &str, token: &str, region_name: &str, group_results: Vec<GroupResultInput>, last_update: &str) -> Result<Option<String>, Error> {
 
     let update_route = format!("{}/api/v1/relay/{}", base_url, region_name);
     let authorization_header = format!("Bearer {}", token);
@@ -172,139 +175,4 @@ async fn update_region_state(base_url: &str, token: &str, region_name: &str, gro
     }
 
     Ok(None)
-}
-
-async fn execute_test(test: &str) -> Result<bool, Error> {
-
-    if test.starts_with("ping") {
-
-        let ping_components: Vec<String> = test.split(' ').map(|item| item.to_string()).collect();
-
-        return match ping_components.get(1) {
-            Some(ip_address) => {
-
-                let is_success = Command::new("/usr/bin/ping")
-                    .arg("-c")
-                    .arg("1")
-                    .arg("-w")
-                    .arg("2")
-                    .arg(ip_address)
-                    .stdout(Stdio::null())
-                    .status()
-                    .await
-                    .map(|status| status.success())
-                    .unwrap_or(false);
-
-                Ok(is_success)
-            }
-            None => {
-                let error_message = Error::new("Ping test failed", "The ping command expects a valid target"); 
-                Err(error_message)
-            }
-        }
-    }
-
-    if test.starts_with("dns") {
-        // TODO
-        let error_message = Error::new("DNS test failed", "The 'dns' command is not supported yet"); 
-        return Err(error_message);
-    }
-
-    if test.starts_with("http") {
-
-        let result: Vec<String> = test.split(' ').map(|item| item.to_string()).collect();
-
-        return match result.get(1) {
-            Some(domain) => {
-
-                let client = Client::new();
-                let url = format!("http://{}", domain);
-                let request_result = client.get(url)
-                    .header("user-agent", "watchdog-relay")
-                    .header("cache-control", "no-cache")
-                    .send()
-                    .await;
-
-                match request_result {
-                    Ok(response) => {
-
-                        let http_status = &response.status();
-                        if http_status.is_client_error() || http_status.is_server_error() {
-                            return Ok(false);
-                        }
-
-                        return Ok(true);
-
-                    },
-                    Err(_) => Ok(false)
-                }
-            },
-            None => {
-                let error_message = Error::new("HTTP test failed", "The HTTP command expects a target"); 
-                Err(error_message)
-            }
-        };
-    }
-
-    let error_message = format!("Test '{}' failed, command not found", test);
-    Err(Error::basic(error_message))
-}
-
-#[cfg(test)]
-mod tests {
-
-    use super::*;
-
-    #[tokio::test]
-    async fn should_request_http_domain() {
-        
-        assert_eq!(execute_test("http example.org").await, Ok(true));
-    }
-
-    #[tokio::test]
-    async fn should_request_http_path() {
-        
-        assert_eq!(execute_test("http github.com").await, Ok(true));
-    }
-
-    #[tokio::test]
-    async fn should_fail_http_invalid_domain() {
-        
-        assert_eq!(execute_test("http www.this-does-not-exist.be").await, Ok(false));
-    }
-
-    #[tokio::test]
-    async fn should_fail_http_unknown_page() {
-        
-        assert_eq!(execute_test("http example.org/fail").await, Ok(false));
-    }
-
-    #[tokio::test]
-    async fn should_perform_valid_ping() {
-        
-        assert_eq!(execute_test("ping 1.1.1.1").await, Ok(true));
-    }
-
-    #[tokio::test]
-    async fn should_fail_invalid_ping() {
-        
-        assert_eq!(execute_test("ping 10.99.99.99").await, Ok(false));
-    }
-
-    #[tokio::test]
-    async fn should_fail_unknown_test_type() {
-        
-        assert_eq!(execute_test("unknown").await, Err(Error::basic(
-            "Test 'unknown' failed, command not found".to_string()
-        )));
-    }
-
-    #[tokio::test]
-    async fn should_fail_empty_test() {
-        
-        assert_eq!(execute_test("").await, Err(Error::basic(
-            "Test '' failed, command not found".to_string()
-        )));
-    }
-
 }

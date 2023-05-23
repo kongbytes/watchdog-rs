@@ -1,5 +1,8 @@
 use std::cmp::PartialEq;
 use std::fmt::{Display, Formatter, Result};
+use std::process;
+
+use ansi_term::{Colour, Style};
 
 #[derive(Debug,Clone)]
 pub struct Error {
@@ -23,6 +26,23 @@ impl Error {
             message,
             details: None
         }
+    }
+
+    pub fn exit(&self, message: &str, help_message: &str) -> ! {
+
+        let heading = Style::new().bold().fg(Colour::Red);
+        let bold = Style::new().bold();
+        let heading_msg = heading.paint("✗ Critical error:");
+
+        eprintln!("{} {}", heading_msg, self.message);
+        eprintln!("  {} {}", bold.paint("Context:"), message);
+        eprintln!("  {} {}", bold.paint("Debug:"), help_message);
+
+        if let Some(details) = &self.details {
+            eprintln!("  {}", Colour::Yellow.paint(details));
+        }
+        
+        process::exit(1);
     }
 
 }
