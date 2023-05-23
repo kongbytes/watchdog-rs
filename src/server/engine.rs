@@ -10,7 +10,7 @@ use serde::Serialize;
 use crate::common::error::Error;
 use crate::server::config::Config;
 use crate::server::storage::{MemoryStorage, Storage, GroupState, RegionState};
-use crate::relay::instance::GroupResult;
+use crate::relay::instance::GroupResultInput;
 use crate::server::scheduler::launch_scheduler;
 
 pub const DEFAULT_PORT: u16 = 3030; 
@@ -229,7 +229,7 @@ async fn handle_get_config(region_name: String, config: Arc<Config>) -> Result<i
     }   
 }
 
-async fn handle_region_update(region_name: String, results: Vec<GroupResult>, config: Arc<Config>, storage: Storage) -> Result<impl warp::Reply, Infallible> {
+async fn handle_region_update(region_name: String, results: Vec<GroupResultInput>, config: Arc<Config>, storage: Storage) -> Result<impl warp::Reply, Infallible> {
 
     // TODO Blocking RW too long
     {
@@ -242,9 +242,10 @@ async fn handle_region_update(region_name: String, results: Vec<GroupResult>, co
                 has_warning = true;
             }
 
-            let state = match group.working {
-                true => GroupState::Up,
-                false => GroupState::Down
+            let state = match (group.working, group.has_warnings) {
+                (true, false) => GroupState::Up,
+                (true, true) => GroupState::Warn,
+                (false, _) => GroupState::Down
             };
 
             let current_status = write_lock.get_group_status(&region_name, &group.name).map(|state| state.status.clone());

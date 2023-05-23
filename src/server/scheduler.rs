@@ -81,7 +81,7 @@ pub async fn launch_scheduler(terminate: Arc<AtomicBool>, conf: Arc<Config>, sto
                 if let Some(status) = group_status {
 
                     match status.status {
-                        GroupState::Up | GroupState::Initial | GroupState::Incident => (),
+                        GroupState::Up | GroupState::Initial | GroupState::Warn | GroupState::Incident => (),
                         GroupState::Down => {
 
                             let group_ms: i64 = group.threshold_ms.try_into().unwrap_or(DEFAULT_GROUP_MS);

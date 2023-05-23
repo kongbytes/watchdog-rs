@@ -7,7 +7,7 @@ regions:
         threshold: 4
         mediums: telegram
         tests:
-          - http example.org
+          - http example.org/sasasa
   - name: region-west
     interval: 5s
     threshold: 3

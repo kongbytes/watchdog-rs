@@ -21,6 +21,7 @@ pub enum RegionState {
 pub enum GroupState {
     Initial,
     Up,
+    Warn,
     Down,
     Incident
 }
@@ -186,6 +187,7 @@ impl MemoryStorage {
                 name: group_key.to_string(),
                 status: match group_value.status {
                     GroupState::Up => "up".to_string(),
+                    GroupState::Warn => "warn".to_string(),
                     GroupState::Down => "down".to_string(),
                     GroupState::Incident => "incident".to_string(),
                     GroupState::Initial => "initial".to_string()

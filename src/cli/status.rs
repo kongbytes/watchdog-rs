@@ -41,6 +41,7 @@ pub async fn display_status(base_url: &str, token: &str) -> Result<(), Error> {
             let group_status: String = match group.status.as_str() {
                 "initial" => format!("{}  INITIAL", Colour::Blue.paint("◼")),
                 "up" => format!("{}  UP", Colour::Green.paint("◼")),
+                "warn" => format!("{} WARN", Colour::Yellow.paint("◼")),
                 "incident" => format!("{}  INCIDENT", Colour::Yellow.paint("◼")),
                 "down" => format!("{}  DOWN", Colour::Red.paint("◼")),
                 _ => format!("{}  UNKNOWN", Colour::Purple.paint("◼")) 
