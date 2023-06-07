@@ -209,7 +209,6 @@ fn build_args() -> clap::Command {
                     .about("Get & inspect an incident")
                     .allow_external_subcommands(true)
                     .arg_required_else_help(true)
-                    .alias("get")
             )
         )
 }
