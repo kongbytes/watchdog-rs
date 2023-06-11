@@ -28,11 +28,13 @@ use super::utils::ServerErr;
 use super::storage::{RegionSummary, IncidentItem};
 
 pub const DEFAULT_PORT: u16 = 3030; 
+pub const DEFAULT_ADDRESS: &'static str = "127.0.0.1"; 
 
 pub struct ServerConf {
 
     pub config_path: String,
     pub port: u16,
+    pub address: String,
     pub token: String,
 
     pub telegram_token: Option<String>,
@@ -120,7 +122,7 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), Error> {
 
     let (server_tx, server_rx) = oneshot::channel();
 
-    let api_url = format!("0.0.0.0:{}", shared_server_conf.port);
+    let api_url = format!("{}:{}", shared_server_conf.address, shared_server_conf.port);
     println!("Starting HTTP server on {}", api_url);
 
     let server = axum::Server::bind(&api_url.parse().unwrap())

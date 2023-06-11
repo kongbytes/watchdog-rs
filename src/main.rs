@@ -31,10 +31,14 @@ async fn main() {
             match server_matches.get_one::<String>("config") {
                 Some(config_path) => {
 
-                    let port: u16 = match server_matches.get_one::<String>("port") {
-                        Some(port) => port.parse().unwrap_or(engine::DEFAULT_PORT),
-                        None => engine::DEFAULT_PORT
-                    };
+                    let port = server_matches.get_one::<String>("port")
+                        .map(|port| port.parse::<u16>().unwrap_or(engine::DEFAULT_PORT))
+                        .unwrap_or(engine::DEFAULT_PORT);
+
+                    let address = server_matches.get_one::<String>("address")
+                        .map(|address| address.clone())
+                        .unwrap_or(engine::DEFAULT_ADDRESS.into());
+
                     let token: String = env::var("WATCHDOG_TOKEN").ok().unwrap_or_else(|| {
                         eprintln!("Expecting a WATCHDOG_TOKEN environment variable for API authentication");
                         process::exit(1);
@@ -43,6 +47,7 @@ async fn main() {
                     let server_conf = engine::ServerConf {
                         config_path: config_path.to_string(),
                         port,
+                        address,
                         token,
                         telegram_token: env::var("TELEGRAM_TOKEN").ok(),
                         telegram_chat: env::var("TELEGRAM_CHAT").ok()
@@ -183,7 +188,13 @@ fn build_args() -> clap::Command {
             .arg(Arg::new("port")
                 .short('p')
                 .long("port")
-                .help("TCP port used by the server"))
+                .help("TCP port used by the server")
+                .default_value("3030"))
+            .arg(Arg::new("address")
+                .short('a')
+                .long("address")
+                .help("Listen address for the server")
+                .default_value(engine::DEFAULT_ADDRESS))
         )
         .subcommand(Command::new("relay")
             .about("Launch relay daemon")
