@@ -1,17 +1,31 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::convert::Infallible;
+use std::time::Duration;
 
+use axum::{
+    body::Body,
+    error_handling::HandleErrorLayer,
+    extract::{Path, State},
+    http::{HeaderMap, header, Request, StatusCode},
+    Json,
+    middleware::{Next, from_fn, from_fn_with_state},
+    response::IntoResponse,
+    Router,
+    routing::get
+};
+use serde_json::json;
 use tokio::{signal, task, sync::oneshot, sync::RwLock};
-use warp::{Filter, Rejection, Reply, http::Response, http::StatusCode, reply};
-use warp::reject::{MissingHeader, MethodNotAllowed, Reject};
-use serde::Serialize;
+use tower::{BoxError, ServiceBuilder};
 
 use crate::common::error::Error;
 use crate::server::config::Config;
 use crate::server::storage::{MemoryStorage, Storage, GroupState, RegionState};
 use crate::relay::instance::GroupResultInput;
 use crate::server::scheduler::launch_scheduler;
+
+use super::config::RegionConfig;
+use super::utils::ServerErr;
+use super::storage::{RegionSummary, IncidentItem};
 
 pub const DEFAULT_PORT: u16 = 3030; 
 
@@ -26,70 +40,9 @@ pub struct ServerConf {
 
 }
 
-#[derive(Serialize)]
-pub struct ServerErr {
-    
-    pub status: u16,
-    pub message: String
-
-}
-
-#[derive(Debug)]
-struct InvalidToken;
-impl Reject for InvalidToken {}
-
-async fn handle_rejection(err: Rejection) -> Result<impl Reply, Infallible> {
-    
-    let code;
-    let message;
-
-    if err.is_not_found() {
-        code = StatusCode::NOT_FOUND;
-        message = "API route not found";
-    } else if err.find::<InvalidToken>().is_some() {
-        code = StatusCode::FORBIDDEN;
-        message = "API token is invalid";
-    } else if let Some(missing_header) = err.find::<MissingHeader>() {
-        if missing_header.name() == "authorization" {
-            code = StatusCode::UNAUTHORIZED;
-            message = "Missing API token in request"
-        } else {
-            code = StatusCode::BAD_REQUEST;
-            message = "Missing header in request";
-        }
-    }
-    else if err.find::<MethodNotAllowed>().is_some() {
-        code = StatusCode::NOT_FOUND;
-        message = "API route not found";
-    }
-    else {
-        eprintln!("[ERR] Got an unhandled rejection: {:?}", err);
-        code = StatusCode::INTERNAL_SERVER_ERROR;
-        message = "Server side error, please retry later";
-    }
-
-    let json = warp::reply::json(&ServerErr {
-        status: code.as_u16(),
-        message: message.into(),
-    });
-    Ok(warp::reply::with_status(json, code))
-}
-
-fn check_authorization(token: &str) -> impl Filter<Extract = (), Error = warp::Rejection> + Clone {
-
-    let owned_token = token.to_string();
-    warp::header::<String>("authorization")
-        .map(move |auth_header: String| (owned_token.to_string(), auth_header))
-        .and_then(|(conf_token, auth_header): (String, String)| async move {
-
-            if auth_header != format!("Bearer {}", conf_token) {
-                return Err(warp::reject::custom(InvalidToken));
-            }
-
-            Ok(())
-    
-        })
-        .untuple_one()
+struct AppState {
+    storage: Storage,
+    config: Arc<Config>
 }
 
 pub async fn launch(server_conf: ServerConf) -> Result<(), Error> {
@@ -105,61 +58,74 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), Error> {
 
     let config = Arc::new(base_config);
 
+    let app_state = Arc::new(AppState {
+        storage: storage.clone(),
+        config: config.clone(),
+    });
+
+    let shared_server_conf = Arc::new(server_conf);
+
     init_storage_regions(storage.clone(), config.clone()).await;
 
-    let base_path = warp::path::end()
-        .map(|| Response::builder()
-            .status(404)
-            .header("Content-Type", "text/html")
-            .header("Cache-Control", "no-cache")
-            .header("Connection", "close")
-            .body("")
-            .expect("Could not build base path response"));
+    let middleware = ServiceBuilder::new()
+        // 3. Apply the HandleError service adapter. Since we use Tower utility layers
+        // (aka middleware), an error service must be defined below to transform specific
+        // errors from the middlewares into HTTP responses.
+        .layer(HandleErrorLayer::new(|error: BoxError| async move {
+            
+            if error.is::<tower::timeout::error::Elapsed>() {
+                eprintln!("Request timed-out: {}", error);
+                Ok((
+                    StatusCode::REQUEST_TIMEOUT,
+                    "Request timed-out"
+                ))
+            }
+            else {
+                eprintln!("Found unhandled error from the middleware layers: {}", error);
+                Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Unhandled internal error"
+                ))
+            }
+        }))
+        // 2. Fail requests that take longer than 10 seconds (if the next layer takes more
+        // to respond - processing is terminated and an error is returned).
+        .timeout(Duration::from_secs(10))
+        // 1. Perfom a basic log on the requests with the response code
+        .layer(from_fn(log_request))
+        .into_inner();
 
-    let find_config = warp::get()
-        .and(warp::path!("api" / "v1" / "relay" / String))
-        .and(check_authorization(&server_conf.token))
-        .and(with_config(config.clone()))
-        .and_then(handle_get_config);
-
-    let update_region_state = warp::put()
-        .and(warp::path!("api" / "v1" / "relay" / String))
-        .and(check_authorization(&server_conf.token))
-        .and(warp::body::json())
-        .and(with_config(config.clone()))
-        .and(with_storage(storage.clone()))
-        .and_then(handle_region_update);
-
-    let get_analytics = warp::get()
-        .and(warp::path!("api" / "v1" / "analytics"))
-        .and(check_authorization(&server_conf.token))
-        .and(with_storage(storage.clone()))
-        .and_then(handle_analytics);
-
-    let find_incidents = warp::get()
-        .and(warp::path!("api" / "v1" / "incidents"))
-        .and(check_authorization(&server_conf.token))
-        .and(with_storage(storage.clone()))
-        .and_then(handle_find_incidents);
-
-    let get_incident = warp::get()
-        .and(warp::path!("api" / "v1" / "incidents" / u32))
-        .and(check_authorization(&server_conf.token))
-        .and(with_storage(storage.clone()))
-        .and_then(handle_get_incident);
-
-    let routes = base_path
-        .or(find_config)
-        .or(get_analytics)
-        .or(update_region_state)
-        .or(find_incidents)
-        .or(get_incident)
-        .recover(handle_rejection);
+    let app = Router::new()
+        .route(
+            "/api/v1/relay/:region_name",
+            get(handle_get_config)
+            .put(handle_region_update)
+        )
+        .route(
+            "/api/v1/analytics",
+            get(handle_analytics)
+        )
+        .route(
+            "/api/v1/incidents",
+            get(handle_find_incidents)
+        )
+        .route(
+            "/api/v1/incidents/:incident_id",
+            get(handle_get_incident)
+        )
+        .fallback(handle_not_found)
+        .route_layer(from_fn_with_state(shared_server_conf.clone(), check_authorization))
+        .layer(middleware)
+        .with_state(app_state);
 
     let (server_tx, server_rx) = oneshot::channel();
 
-    let (_address, server) = warp::serve(routes)
-        .bind_with_graceful_shutdown(([0, 0, 0, 0], server_conf.port), async {
+    let api_url = format!("0.0.0.0:{}", shared_server_conf.port);
+    println!("Starting HTTP server on {}", api_url);
+
+    let server = axum::Server::bind(&api_url.parse().unwrap())
+        .serve(app.into_make_service())
+        .with_graceful_shutdown(async {
             server_rx.await.ok();
             println!("Received graceful shutdown signal");
         });
@@ -167,7 +133,7 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), Error> {
     let web_handle = task::spawn(server);
 
     println!();
-    println!(" ✓ Watchdog monitoring API is UP (port {})", server_conf.port);
+    println!(" ✓ Watchdog monitoring API is UP (port {})", shared_server_conf.port);
 
     let terminate_sheduler = Arc::new(AtomicBool::new(false));
 
@@ -182,7 +148,7 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), Error> {
         println!("Use the 'relay --region name' command");
         println!();
     
-        launch_scheduler(scheduler_terminate, scheduler_conf, scheduler_storage, &server_conf).await;
+        launch_scheduler(scheduler_terminate, scheduler_conf, scheduler_storage, &shared_server_conf.clone()).await;
 
     });
 
@@ -191,10 +157,46 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), Error> {
     terminate_sheduler.store(true, Ordering::Relaxed);
     let _ = server_tx.send(());
 
-    web_handle.await.map_err(|err| Error::new("Could not end web task", err))?;
+    let _= web_handle.await.map_err(|err| Error::new("Could not end web task", err))?;
     scheduler_handle.await.map_err(|err| Error::new("Could not end scheduler task", err))?;
 
     Ok(())
+}
+
+async fn check_authorization(State(state): State<Arc<ServerConf>>, request: Request<Body>, next: Next<Body>) -> Result<impl IntoResponse, impl IntoResponse> {
+
+    let authorization_header = request.headers().get("authorization").map(|header| header.to_str().unwrap_or_default());
+
+    match authorization_header {
+        Some(token) => {
+
+            if token != format!("Bearer {}", state.token) {
+                return Err(ServerErr::unauthorized("Invalid authentication"));
+            }
+            
+            let response = next.run(request).await;
+            Ok(response)
+
+        }
+        None => Err(ServerErr::unauthorized("Invalid authentication"))
+    }
+}
+
+async fn log_request(req: Request<Body>, next: Next<Body>) -> Result<impl IntoResponse, (StatusCode, String)> {
+
+    let uri = req.uri().clone();
+    let method = req.method().clone();
+
+    let response = next.run(req).await;
+
+    let status = response.status();
+    if status.is_success() || status.is_redirection() || status.is_informational() {
+        println!("\"{} {}\" {}", method, uri, response.status().as_u16());
+    } else {
+        eprintln!("\"{} {}\" {}", method, uri, response.status().as_u16());
+    }
+
+    Ok(response)
 }
 
 async fn init_storage_regions(storage: Arc<RwLock<MemoryStorage>>, config: Arc<Config>) {
@@ -213,23 +215,38 @@ async fn init_storage_regions(storage: Arc<RwLock<MemoryStorage>>, config: Arc<C
     }
 }
 
-fn with_config(config: Arc<Config>) -> impl Filter<Extract = (Arc<Config>,), Error = std::convert::Infallible> + Clone {
-    warp::any().map(move || config.clone())
+async fn handle_not_found() -> impl IntoResponse {
+    ServerErr::not_found("Endpoint not found")
 }
 
-fn with_storage(storage: Storage) -> impl Filter<Extract = (Storage,), Error = std::convert::Infallible> + Clone {
-    warp::any().map(move || storage.clone())
+async fn handle_get_config(Path(region_name): Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<RegionConfig>, ServerErr> {
+
+    let config = state.config.clone();
+
+    let exported_config = config.export_region(&region_name).map(|config| config.clone());
+
+    if let Some(config) = exported_config {
+        return Ok(Json(config));
+    }
+
+    let error_message = format!("Relay configuration not found for region {}", region_name);
+    Err(ServerErr::not_found(error_message))
 }
 
-async fn handle_get_config(region_name: String, config: Arc<Config>) -> Result<impl warp::Reply, Infallible> {
+async fn handle_analytics(State(state): State<Arc<AppState>>) -> Result<Json<RegionSummary>, ServerErr> {
 
-    match config.export_region(&region_name) {
-        Some(exported_config) => Ok(warp::reply::json(exported_config)),
-        None => Ok(warp::reply::json(&"{}"))
-    }   
+    let storage = state.storage.clone();
+
+    let regions = storage.read().await.compute_analytics();
+
+    Ok(regions.into())
 }
 
-async fn handle_region_update(region_name: String, results: Vec<GroupResultInput>, config: Arc<Config>, storage: Storage) -> Result<impl warp::Reply, Infallible> {
+// TODO Should validate body
+async fn handle_region_update(Path(region_name): Path<String>, State(state): State<Arc<AppState>>, Json(results): Json<Vec<GroupResultInput>>) -> impl IntoResponse {
+
+    let storage = state.storage.clone();
+    let config = state.config.clone();
 
     // TODO Blocking RW too long
     {
@@ -274,49 +291,40 @@ async fn handle_region_update(region_name: String, results: Vec<GroupResultInput
         write_lock.refresh_region(&region_name, has_warning);
     }
 
-    let response = Response::builder()
-        .status(200)
-        .header("Cache-Control", "no-cache")
-        .header("Connection", "close")
-        .header("X-Watchdog-Update", &config.version)
-        .body("{}")
-        .unwrap();
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CACHE_CONTROL, "no-cache".parse().unwrap());
+    headers.insert(header::CONNECTION, "close".parse().unwrap());
+    headers.insert("X-Watchdog-Update", config.version.clone().parse().unwrap());
 
-    Ok(response)
+    (
+        StatusCode::OK,
+        headers,
+        Json(json!({
+            "result": true
+        })),
+    )
+
 }
 
-async fn handle_analytics(storage: Storage) -> Result<impl warp::Reply, Infallible> {
 
-    let regions = storage.read().await.compute_analytics();
+async fn handle_find_incidents(State(state): State<Arc<AppState>>) -> Result<Json<Vec<IncidentItem>>, ServerErr> {
 
-    Ok(warp::reply::json(&regions))
-}
-
-async fn handle_find_incidents(storage: Storage) -> Result<impl warp::Reply, Infallible> {
+    let storage = state.storage.clone();
 
     let incidents = storage.read().await.find_incidents();
 
-    Ok(warp::reply::json(&incidents))
+    Ok(incidents.into())
 }
 
-async fn handle_get_incident(incident_id: u32, storage: Storage) -> Result<impl warp::Reply, Infallible> {
+async fn handle_get_incident(Path(incident_id): Path<u32>, State(state): State<Arc<AppState>>) -> Result<Json<IncidentItem>, ServerErr> {
+
+    let storage = state.storage.clone();
 
     let incident_result = storage.read().await.get_incident(incident_id);
 
-    match incident_result {
-        Some(incident) => {
-
-            let json_response = reply::json(&incident);
-            Ok(reply::with_status(json_response, StatusCode::OK))
-        },
-        None => {
-
-            let error_body = ServerErr {
-                status: 404,
-                message: "Could not find incident".to_string()
-            };
-            let json_response = reply::json(&error_body);
-            Ok(reply::with_status(json_response, StatusCode::NOT_FOUND))
-        }
+    if let Some(result) = incident_result {
+        return Ok(result.into())
     }
+
+    Err(ServerErr::not_found("Could not find incident"))
 }

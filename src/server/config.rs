@@ -32,7 +32,7 @@ pub struct ConfigInput {
 
 // Internal models
 
-#[derive(Deserialize,Serialize)]
+#[derive(Deserialize,Serialize,Clone)]
 pub struct GroupConfig {
     pub name: String,
     pub threshold_ms: u64,
@@ -40,7 +40,7 @@ pub struct GroupConfig {
     pub tests: Vec<String>
 }
 
-#[derive(Deserialize,Serialize)]
+#[derive(Deserialize,Serialize,Clone)]
 pub struct RegionConfig {
     pub name: String,
     pub interval_ms: u64,

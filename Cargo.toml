@@ -16,8 +16,12 @@ rust-version = "1.64"
 [dependencies]
 
 # Runtime
-tokio = { version = "1.27.0", features = ["full"] }
-warp = "0.3"
+tokio = { version = "1.28.0", features = ["full"] }
+axum = { version = "0.6" }
+tower = { version = "0.4", features = ["util", "timeout"] }
+
+# HTTP essentials
+validator = { version = "0.16", features = ["derive"] }
 
 # Parsing
 serde = { version = "1.0", features = ["derive"] }

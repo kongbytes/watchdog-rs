@@ -1,14 +1,24 @@
-use std::process::Stdio;
+use std::str;
 
 use tokio::process::Command;
 use reqwest::Client;
 
 use crate::common::error::Error;
 
+// Should obtain Prometheus metrics such as
+// http_requests_total{method="post",code="200"} 1027 1395066363000
+
 #[derive(PartialEq, Debug)]
 pub struct TestResult {
+
     pub is_success: bool,
     pub has_warning: bool
+
+    // Metric ideas
+    // PING: RTT 
+    // HTTP: ...
+    // DNS: ...
+
 }
 
 impl TestResult {
@@ -35,24 +45,11 @@ pub async fn execute_test(test: &str) -> Result<TestResult, Error> {
 
     if test.starts_with("ping") {
 
-        let ping_components: Vec<String> = test.split(' ').map(|item| item.to_string()).collect();
+        let ping_components: Vec<&str> = test.split(' ').collect();
 
         return match ping_components.get(1) {
             Some(ip_address) => {
-
-                let is_success = Command::new("/usr/bin/ping")
-                    .arg("-c")
-                    .arg("1")
-                    .arg("-w")
-                    .arg("2")
-                    .arg(ip_address)
-                    .stdout(Stdio::null())
-                    .status()
-                    .await
-                    .map(|status| status.success())
-                    .unwrap_or(false);
-
-                Ok(TestResult::new(is_success))
+                perform_ping(ip_address).await
             }
             None => {
                 let error_message = Error::new("Ping test failed", "The ping command expects a valid target"); 
@@ -107,6 +104,55 @@ pub async fn execute_test(test: &str) -> Result<TestResult, Error> {
     Err(Error::basic(error_message))
 }
 
+async fn perform_ping(ip_address: &str) -> Result<TestResult, Error> {
+
+    let command_output = Command::new("/usr/bin/ping")
+        .arg("-c")
+        .arg("1")
+        .arg("-w")
+        .arg("2")
+        .arg(ip_address)
+        .output()
+        .await;
+
+    let output = match command_output {
+        Ok(output) => output,
+        Err(err) => {
+            return Err(Error::new("Failed to ping", err));
+        }
+    };
+    
+    if !output.status.success() {
+        return Ok(TestResult::new(false));
+    }
+
+    let stdout = match String::from_utf8(output.stdout) {
+        Ok(stdout) => stdout,
+        Err(err) => {
+            return Err(Error::new("Failed to ping", err));
+        }
+    };
+
+    let rtt_result = stdout.lines()
+        .find(|s| s.starts_with("rtt"))
+        .unwrap_or_default()
+        .split(" = ")
+        .collect::<Vec<&str>>()
+        .get(1)
+        .map(|s| s.split('/').next())
+        .unwrap_or_default()
+        .unwrap_or_default()
+        .parse::<f32>();
+
+    match rtt_result {
+        // TODO Should include ping in results
+        Ok(_rtt) if _rtt < 100.0 => Ok(TestResult::new(true)),
+        Ok(_rtt) if _rtt >= 100.0 => Ok(TestResult::new_with_warning(true)),
+        Err(err) => Err(Error::new("Failed to ping", err)),
+        _ => Err(Error::basic("Could not handle ping RTT".to_string()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -133,7 +179,7 @@ mod tests {
     #[tokio::test]
     async fn should_fail_http_unknown_page() {
         
-        assert_eq!(execute_test("http example.org/fail").await, Ok(TestResult::new(false)));
+        assert_eq!(execute_test("http example.org/fail").await, Ok(TestResult::new_with_warning(true)));
     }
 
     #[tokio::test]
