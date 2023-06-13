@@ -1,14 +1,13 @@
-use std::thread::sleep;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 use std::convert::TryInto;
 
+use tokio::time::{sleep, Duration};
 use chrono::{Duration as ChronoDuration, Utc};
+use tokio_util::sync::CancellationToken;
 
 use crate::server::storage::{RegionStatus, GroupStatus, GroupState, RegionState};
 use crate::server::alert::{self, TelegramOptions};
-use crate::server::engine::ServerConf;
+use crate::server::service::ServerConf;
 use crate::server::storage::Storage;
 use crate::server::config::Config;
 
@@ -16,13 +15,9 @@ use crate::server::config::Config;
 const DEFAULT_REGION_MS: i64 = 10 * 1000;
 const DEFAULT_GROUP_MS: i64 = 10 * 1000;
 
-pub async fn launch_scheduler(terminate: Arc<AtomicBool>, conf: Arc<Config>, storage: Storage, server_conf: &ServerConf) {
+pub async fn launch_scheduler(cancel_token: CancellationToken, conf: Arc<Config>, storage: Storage, server_conf: &ServerConf) {
 
     loop {
-
-        if terminate.load(Ordering::Relaxed) {
-            break;
-        }
         
         for region in conf.regions.iter() {
 
@@ -115,6 +110,19 @@ pub async fn launch_scheduler(terminate: Arc<AtomicBool>, conf: Arc<Config>, sto
             }
         }
 
-        sleep(Duration::from_secs(1));
+        let mut cancel_loop = false;
+
+        tokio::select! {
+            _ = cancel_token.cancelled() => {
+                cancel_loop = true;
+            }
+            _ = sleep(Duration::from_secs(1)) => {
+                // Sleep went well... on to the next tests
+            }
+        };
+
+        if cancel_loop {
+            break;
+        }
     }
 }

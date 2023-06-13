@@ -1,4 +1,3 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,21 +13,22 @@ use axum::{
     routing::get
 };
 use serde_json::json;
-use tokio::{signal, task, sync::oneshot, sync::RwLock};
+use tokio::{signal, task, sync::RwLock};
+use tokio_util::sync::CancellationToken;
 use tower::{BoxError, ServiceBuilder};
 
 use crate::common::error::Error;
+use crate::relay::model::GroupResultInput;
 use crate::server::config::Config;
 use crate::server::storage::{MemoryStorage, Storage, GroupState, RegionState};
-use crate::relay::instance::GroupResultInput;
 use crate::server::scheduler::launch_scheduler;
 
 use super::config::RegionConfig;
 use super::utils::ServerErr;
-use super::storage::{RegionSummary, IncidentItem};
+use super::storage::{RegionSummary, IncidentItem, GroupMetrics};
 
 pub const DEFAULT_PORT: u16 = 3030; 
-pub const DEFAULT_ADDRESS: &'static str = "127.0.0.1"; 
+pub const DEFAULT_ADDRESS: &str = "127.0.0.1"; 
 
 pub struct ServerConf {
 
@@ -115,21 +115,26 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), Error> {
             "/api/v1/incidents/:incident_id",
             get(handle_get_incident)
         )
+        .route(
+            "/api/v1/exporter",
+            get(handle_prometheus_metrics)
+        )
         .fallback(handle_not_found)
         .route_layer(from_fn_with_state(shared_server_conf.clone(), check_authorization))
         .layer(middleware)
         .with_state(app_state);
 
-    let (server_tx, server_rx) = oneshot::channel();
+    let cancel_token = CancellationToken::new();
+    let cancel_token_http = cancel_token.clone();
+    let cancel_token_scheduler = cancel_token.clone();
 
     let api_url = format!("{}:{}", shared_server_conf.address, shared_server_conf.port);
     println!("Starting HTTP server on {}", api_url);
 
     let server = axum::Server::bind(&api_url.parse().unwrap())
         .serve(app.into_make_service())
-        .with_graceful_shutdown(async {
-            server_rx.await.ok();
-            println!("Received graceful shutdown signal");
+        .with_graceful_shutdown(async move {
+            cancel_token_http.cancelled().await;
         });
 
     let web_handle = task::spawn(server);
@@ -137,9 +142,6 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), Error> {
     println!();
     println!(" ✓ Watchdog monitoring API is UP (port {})", shared_server_conf.port);
 
-    let terminate_sheduler = Arc::new(AtomicBool::new(false));
-
-    let scheduler_terminate = terminate_sheduler.clone();
     let scheduler_conf = config.clone();
     let scheduler_storage = storage.clone();
     let scheduler_handle = task::spawn(async move {
@@ -150,14 +152,13 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), Error> {
         println!("Use the 'relay --region name' command");
         println!();
     
-        launch_scheduler(scheduler_terminate, scheduler_conf, scheduler_storage, &shared_server_conf.clone()).await;
+        launch_scheduler(cancel_token_scheduler, scheduler_conf, scheduler_storage, &shared_server_conf.clone()).await;
 
     });
 
     signal::ctrl_c().await.map_err(|err| Error::new("Could not handle graceful shutdown signal", err))?;
-    
-    terminate_sheduler.store(true, Ordering::Relaxed);
-    let _ = server_tx.send(());
+    cancel_token.cancel();
+    println!("Received graceful shutdown signal");
 
     let _= web_handle.await.map_err(|err| Error::new("Could not end web task", err))?;
     scheduler_handle.await.map_err(|err| Error::new("Could not end scheduler task", err))?;
@@ -225,7 +226,7 @@ async fn handle_get_config(Path(region_name): Path<String>, State(state): State<
 
     let config = state.config.clone();
 
-    let exported_config = config.export_region(&region_name).map(|config| config.clone());
+    let exported_config = config.export_region(&region_name).cloned();
 
     if let Some(config) = exported_config {
         return Ok(Json(config));
@@ -244,6 +245,22 @@ async fn handle_analytics(State(state): State<Arc<AppState>>) -> Result<Json<Reg
     Ok(regions.into())
 }
 
+async fn handle_prometheus_metrics(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+
+    // TODO Should include group states as metrics
+
+    let storage = state.storage.clone();
+
+    let metrics = storage.read().await.find_metrics();
+
+    metrics.iter().map(|metric| {
+    
+        let labels: Vec<String> = metric.labels.iter().map(|(key, value)| format!("{}=\"{}\"", key, value)).collect();
+        format!("watchdog_{}{{{}}} {}\n", metric.name, labels.join(","), metric.metric)
+    
+    }).collect::<String>()
+}
+
 // TODO Should validate body
 async fn handle_region_update(Path(region_name): Path<String>, State(state): State<Arc<AppState>>, Json(results): Json<Vec<GroupResultInput>>) -> impl IntoResponse {
 
@@ -257,25 +274,38 @@ async fn handle_region_update(Path(region_name): Path<String>, State(state): Sta
         let mut has_warning = false;
         for group in results {
 
-            if !group.working {
+            // If groups in a region do not work (failed ping test) or have warnings (ping
+            // latency too high) - we set the "warning" status to a region
+            if !group.working || group.has_warnings {
                 has_warning = true;
             }
 
-            let state = match (group.working, group.has_warnings) {
+            let group_state = match (group.working, group.has_warnings) {
                 (true, false) => GroupState::Up,
                 (true, true) => GroupState::Warn,
                 (false, _) => GroupState::Down
             };
 
-            let current_status = write_lock.get_group_status(&region_name, &group.name).map(|state| state.status.clone());
+            let current_state = write_lock.get_group_status(&region_name, &group.name).map(|state| state.status.clone());
         
-            // If there is an incident on the group and the group is -still- not working,
-            // do not override values (can re-trigger incidents otherwise)
-            if matches!(current_status, Some(GroupState::Incident)) && !group.working {
+            // If there is an ongoing incident on the group and the group is -still- not working,
+            // do not refresh values (can re-trigger incidents otherwise)
+            // @TODO https://github.com/orgs/kongbytes/projects/3/views/1?pane=issue&itemId=30528369
+            if !group.working && matches!(current_state, Some(GroupState::Incident)) {
                 continue;
             }
 
-            write_lock.refresh_group(&region_name, &group.name, state).unwrap_or_else(|err| {
+            let mut metrics: Vec<GroupMetrics> = vec![];
+            for group_metric in group.metrics {
+
+                metrics.push(GroupMetrics {
+                    name: group_metric.name,
+                    labels: group_metric.labels,
+                    metric: group_metric.metric
+                });
+            }
+
+            write_lock.refresh_group(&region_name, &group.name, group_state, metrics).unwrap_or_else(|err| {
                 eprintln!("Could not refresh group, can cause unstable storage: {}", err);
             });
         }

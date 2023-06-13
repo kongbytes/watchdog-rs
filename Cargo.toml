@@ -19,6 +19,7 @@ rust-version = "1.64"
 tokio = { version = "1.28.0", features = ["full"] }
 axum = { version = "0.6" }
 tower = { version = "0.4", features = ["util", "timeout"] }
+tokio-util = "0.7"
 
 # HTTP essentials
 validator = { version = "0.16", features = ["derive"] }
