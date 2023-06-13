@@ -34,7 +34,7 @@ pub async fn display_status(base_url: &str, token: &str) -> Result<(), Error> {
             }
 
             let group_name = match group.name.split('.').last() {
-                Some(name) => format!("Zone {}", name),
+                Some(name) => format!("Group {}", name),
                 None => group.name.to_string()
             };
 

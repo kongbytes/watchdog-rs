@@ -1,11 +1,11 @@
 # /etc/systemd/system/watchdog.service
 
 [Unit]
-Description=Watchdog LS service                                                 
+Description=Watchdog service                                                 
 
 [Service]
 User=grafana                                                                       
-WorkingDirectory=/home/grafana                                                     
+WorkingDirectory=/home/watchdog                                                     
 Environment="TELEGRAM_CHAT=xxx"
 Environment="TELEGRAM_TOKEN=xxx"
 ExecStart=/usr/local/bin/watchdog-cli server --config ./config.yaml
