@@ -36,10 +36,24 @@ struct RegionMetadata {
     linked_groups: Vec<String>
 }
 
+pub struct FullMetric {
+    pub name: String,
+    pub labels: HashMap<String, String>,
+    pub metric: f32
+}
+
+#[derive(Clone)]
+pub struct GroupMetrics {
+    pub name: String,
+    pub labels: HashMap<String, String>,
+    pub metric: f32
+}
+
 #[derive(Clone)]
 pub struct GroupStatus {
     pub status: GroupState,
-    pub updated_at: DateTime<Utc>
+    pub updated_at: DateTime<Utc>,
+    pub last_metrics: Vec<GroupMetrics>
 }
 
 pub struct IncidentRecord {
@@ -119,7 +133,8 @@ impl MemoryStorage {
 
         self.group_storage.insert(group_key, GroupStatus {
             status: GroupState::Initial,
-            updated_at: Utc::now()
+            updated_at: Utc::now(),
+            last_metrics: vec![]
         });
     }
 
@@ -131,6 +146,36 @@ impl MemoryStorage {
         
         let group_key = format!("{}.{}", region, group);
         self.group_storage.get(&group_key)
+    }
+
+    pub fn find_metrics(&self) -> Vec<FullMetric> {
+
+        let mut metrics: Vec<FullMetric> = vec![];
+        for (group_name, group_status) in &self.group_storage {
+
+            for group_metric in &group_status.last_metrics {
+
+                let mut full_labels = group_metric.labels.clone();
+
+                let group_parts: Vec<&str> = group_name.split('.').collect();
+
+                if let Some(region_name) = group_parts.first() {
+                    full_labels.insert("region".into(), region_name.to_string());
+                }
+
+                if let Some(group_name) = group_parts.last() {
+                    full_labels.insert("group".into(), group_name.to_string());
+                }
+
+                metrics.push(FullMetric {
+                    name: group_metric.name.clone(),
+                    labels: full_labels,
+                    metric: group_metric.metric
+                });
+            }
+        }
+
+        metrics
     }
 
     pub fn find_incidents(&self) -> Vec<IncidentItem> {
@@ -238,7 +283,8 @@ impl MemoryStorage {
 
             self.group_storage.insert(format!("{}.{}", region, impacted_group), GroupStatus {
                 status: GroupState::Incident,
-                updated_at: Utc::now()
+                updated_at: Utc::now(),
+                last_metrics: vec![]
             });
         }
 
@@ -254,7 +300,7 @@ impl MemoryStorage {
         Ok(())
     }
 
-    pub fn refresh_group(&mut self, region: &str, group: &str, status: GroupState) -> Result<(), Error> {
+    pub fn refresh_group(&mut self, region: &str, group: &str, status: GroupState, last_metrics: Vec<GroupMetrics>) -> Result<(), Error> {
 
         let group_key = format!("{}.{}", region, group);
         let updated_at = match status {
@@ -267,7 +313,8 @@ impl MemoryStorage {
 
         self.group_storage.insert(group_key, GroupStatus {
             status,
-            updated_at
+            updated_at,
+            last_metrics
         });
 
         Ok(())
@@ -287,7 +334,8 @@ impl MemoryStorage {
         // Move to incident, this will avoid re-trigger alerts
         self.group_storage.insert(group_key, GroupStatus {
             status: GroupState::Incident,
-            updated_at
+            updated_at,
+            last_metrics: old_status.last_metrics.clone()
         });
 
         self.incidents.push(IncidentRecord {

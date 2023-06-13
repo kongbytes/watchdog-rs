@@ -8,8 +8,6 @@ use std::process;
 
 use clap::{Arg, Command};
 
-use crate::server::engine;
-use crate::relay::instance;
 use crate::cli::{incident, status, init};
 use crate::common::error::Error;
 
@@ -32,19 +30,19 @@ async fn main() {
                 Some(config_path) => {
 
                     let port = server_matches.get_one::<String>("port")
-                        .map(|port| port.parse::<u16>().unwrap_or(engine::DEFAULT_PORT))
-                        .unwrap_or(engine::DEFAULT_PORT);
+                        .map(|port| port.parse::<u16>().unwrap_or(server::service::DEFAULT_PORT))
+                        .unwrap_or(server::service::DEFAULT_PORT);
 
                     let address = server_matches.get_one::<String>("address")
-                        .map(|address| address.clone())
-                        .unwrap_or(engine::DEFAULT_ADDRESS.into());
+                        .cloned()
+                        .unwrap_or(server::service::DEFAULT_ADDRESS.into());
 
                     let token: String = env::var("WATCHDOG_TOKEN").ok().unwrap_or_else(|| {
                         eprintln!("Expecting a WATCHDOG_TOKEN environment variable for API authentication");
                         process::exit(1);
                     });
 
-                    let server_conf = engine::ServerConf {
+                    let server_conf = server::service::ServerConf {
                         config_path: config_path.to_string(),
                         port,
                         address,
@@ -53,7 +51,7 @@ async fn main() {
                         telegram_chat: env::var("TELEGRAM_CHAT").ok()
                     };
 
-                    let server_result = engine::launch(server_conf).await;
+                    let server_result = server::service::launch(server_conf).await;
 
                     if let Err(server_err) = server_result {
                         eprintln!("The watchdog server process failed, see details below");
@@ -80,7 +78,7 @@ async fn main() {
             match relay_matches.get_one::<String>("region") {
                 Some(region_name) => {
 
-                    let relay_result = instance::launch(base_url, token, region_name.to_string()).await;
+                    let relay_result = relay::service::launch(base_url, token, region_name.to_string()).await;
 
                     if let Err(relay_err) = relay_result {
                         eprintln!("The watchdog relay process failed, see details below");
@@ -194,7 +192,7 @@ fn build_args() -> clap::Command {
                 .short('a')
                 .long("address")
                 .help("Listen address for the server")
-                .default_value(engine::DEFAULT_ADDRESS))
+                .default_value(server::service::DEFAULT_ADDRESS))
         )
         .subcommand(Command::new("relay")
             .about("Launch relay daemon")
