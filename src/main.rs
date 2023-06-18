@@ -42,7 +42,7 @@ async fn main() {
                         process::exit(1);
                     });
 
-                    let server_conf = server::service::ServerConf {
+                    let server_conf = server::config::ServerConf {
                         config_path: config_path.to_string(),
                         port,
                         address,

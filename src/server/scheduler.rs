@@ -7,9 +7,10 @@ use tokio_util::sync::CancellationToken;
 
 use crate::server::storage::{RegionStatus, GroupStatus, GroupState, RegionState};
 use crate::server::alert::{self, TelegramOptions};
-use crate::server::service::ServerConf;
 use crate::server::storage::Storage;
 use crate::server::config::Config;
+
+use super::config::ServerConf;
 
 // TODO Should review defaults
 const DEFAULT_REGION_MS: i64 = 10 * 1000;

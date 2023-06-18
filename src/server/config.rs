@@ -5,6 +5,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::common::error::Error;
 
+pub struct ServerConf {
+
+    pub config_path: String,
+    pub port: u16,
+    pub address: String,
+    pub token: String,
+
+    pub telegram_token: Option<String>,
+    pub telegram_chat: Option<String>
+
+}
+
 // The 'input' models below will only be used once to parse the YAML
 // configuration file. This data is rather human-friendly and will not be used
 // accross watchdog services, except for the init CLI (see below).

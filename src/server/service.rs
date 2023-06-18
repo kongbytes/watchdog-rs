@@ -2,49 +2,30 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{
-    body::Body,
     error_handling::HandleErrorLayer,
-    extract::{Path, State},
-    http::{HeaderMap, header, Request, StatusCode},
-    Json,
-    middleware::{Next, from_fn, from_fn_with_state},
-    response::IntoResponse,
+    http::StatusCode,
+    middleware::{from_fn, from_fn_with_state},
     Router,
     routing::get
 };
-use serde_json::json;
 use tokio::{signal, task, sync::RwLock};
 use tokio_util::sync::CancellationToken;
 use tower::{BoxError, ServiceBuilder};
 
-use crate::common::error::Error;
-use crate::relay::model::GroupResultInput;
+use crate::{common::error::Error, server::middleware::{check_authorization, log_request}};
 use crate::server::config::Config;
-use crate::server::storage::{MemoryStorage, Storage, GroupState, RegionState};
+use crate::server::storage::{MemoryStorage, Storage};
 use crate::server::scheduler::launch_scheduler;
 
-use super::config::RegionConfig;
-use super::utils::ServerErr;
-use super::storage::{RegionSummary, IncidentItem, GroupMetrics};
+use super::config::ServerConf;
+use super::controller::*;
 
 pub const DEFAULT_PORT: u16 = 3030; 
 pub const DEFAULT_ADDRESS: &str = "127.0.0.1"; 
 
-pub struct ServerConf {
-
-    pub config_path: String,
-    pub port: u16,
-    pub address: String,
-    pub token: String,
-
-    pub telegram_token: Option<String>,
-    pub telegram_chat: Option<String>
-
-}
-
-struct AppState {
-    storage: Storage,
-    config: Arc<Config>
+pub struct AppState {
+    pub storage: Storage,
+    pub config: Arc<Config>
 }
 
 pub async fn launch(server_conf: ServerConf) -> Result<(), Error> {
@@ -166,41 +147,6 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), Error> {
     Ok(())
 }
 
-async fn check_authorization(State(state): State<Arc<ServerConf>>, request: Request<Body>, next: Next<Body>) -> Result<impl IntoResponse, impl IntoResponse> {
-
-    let authorization_header = request.headers().get("authorization").map(|header| header.to_str().unwrap_or_default());
-
-    match authorization_header {
-        Some(token) => {
-
-            if token != format!("Bearer {}", state.token) {
-                return Err(ServerErr::unauthorized("Invalid authentication"));
-            }
-            
-            let response = next.run(request).await;
-            Ok(response)
-
-        }
-        None => Err(ServerErr::unauthorized("Invalid authentication"))
-    }
-}
-
-async fn log_request(req: Request<Body>, next: Next<Body>) -> Result<impl IntoResponse, (StatusCode, String)> {
-
-    let uri = req.uri().clone();
-    let method = req.method().clone();
-
-    let response = next.run(req).await;
-
-    let status = response.status();
-    if status.is_success() || status.is_redirection() || status.is_informational() {
-        println!("\"{} {}\" {}", method, uri, response.status().as_u16());
-    } else {
-        eprintln!("\"{} {}\" {}", method, uri, response.status().as_u16());
-    }
-
-    Ok(response)
-}
 
 async fn init_storage_regions(storage: Arc<RwLock<MemoryStorage>>, config: Arc<Config>) {
 
@@ -218,145 +164,3 @@ async fn init_storage_regions(storage: Arc<RwLock<MemoryStorage>>, config: Arc<C
     }
 }
 
-async fn handle_not_found() -> impl IntoResponse {
-    ServerErr::not_found("Endpoint not found")
-}
-
-async fn handle_get_config(Path(region_name): Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<RegionConfig>, ServerErr> {
-
-    let config = state.config.clone();
-
-    let exported_config = config.export_region(&region_name).cloned();
-
-    if let Some(config) = exported_config {
-        return Ok(Json(config));
-    }
-
-    let error_message = format!("Relay configuration not found for region {}", region_name);
-    Err(ServerErr::not_found(error_message))
-}
-
-async fn handle_analytics(State(state): State<Arc<AppState>>) -> Result<Json<RegionSummary>, ServerErr> {
-
-    let storage = state.storage.clone();
-
-    let regions = storage.read().await.compute_analytics();
-
-    Ok(regions.into())
-}
-
-async fn handle_prometheus_metrics(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-
-    // TODO Should include group states as metrics
-
-    let storage = state.storage.clone();
-
-    let metrics = storage.read().await.find_metrics();
-
-    metrics.iter().map(|metric| {
-    
-        let labels: Vec<String> = metric.labels.iter().map(|(key, value)| format!("{}=\"{}\"", key, value)).collect();
-        format!("watchdog_{}{{{}}} {}\n", metric.name, labels.join(","), metric.metric)
-    
-    }).collect::<String>()
-}
-
-// TODO Should validate body
-async fn handle_region_update(Path(region_name): Path<String>, State(state): State<Arc<AppState>>, Json(results): Json<Vec<GroupResultInput>>) -> impl IntoResponse {
-
-    let storage = state.storage.clone();
-    let config = state.config.clone();
-
-    // TODO Blocking RW too long
-    {
-        let mut write_lock = storage.write().await;
-
-        let mut has_warning = false;
-        for group in results {
-
-            // If groups in a region do not work (failed ping test) or have warnings (ping
-            // latency too high) - we set the "warning" status to a region
-            if !group.working || group.has_warnings {
-                has_warning = true;
-            }
-
-            let group_state = match (group.working, group.has_warnings) {
-                (true, false) => GroupState::Up,
-                (true, true) => GroupState::Warn,
-                (false, _) => GroupState::Down
-            };
-
-            let current_state = write_lock.get_group_status(&region_name, &group.name).map(|state| state.status.clone());
-        
-            // If there is an ongoing incident on the group and the group is -still- not working,
-            // do not refresh values (can re-trigger incidents otherwise)
-            // @TODO https://github.com/orgs/kongbytes/projects/3/views/1?pane=issue&itemId=30528369
-            if !group.working && matches!(current_state, Some(GroupState::Incident)) {
-                continue;
-            }
-
-            let mut metrics: Vec<GroupMetrics> = vec![];
-            for group_metric in group.metrics {
-
-                metrics.push(GroupMetrics {
-                    name: group_metric.name,
-                    labels: group_metric.labels,
-                    metric: group_metric.metric
-                });
-            }
-
-            write_lock.refresh_group(&region_name, &group.name, group_state, metrics).unwrap_or_else(|err| {
-                eprintln!("Could not refresh group, can cause unstable storage: {}", err);
-            });
-        }
-
-        let region_status = write_lock.get_region_status(&region_name);
-
-        if let Some(status) = region_status {
-
-            // We already had an incident
-            if let RegionState::Down = status.status {
-                println!("INCIDENT RESOLVED ON REGION {}", region_name);
-            }
-        }
-
-        write_lock.refresh_region(&region_name, has_warning);
-    }
-
-    let mut headers = HeaderMap::new();
-    headers.insert(header::CACHE_CONTROL, "no-cache".parse().unwrap());
-    headers.insert(header::CONNECTION, "close".parse().unwrap());
-    headers.insert("X-Watchdog-Update", config.version.clone().parse().unwrap());
-
-    (
-        StatusCode::OK,
-        headers,
-        Json(json!({
-            "result": true
-        })),
-    )
-
-}
-
-
-async fn handle_find_incidents(State(state): State<Arc<AppState>>) -> Result<Json<Vec<IncidentItem>>, ServerErr> {
-
-    let storage = state.storage.clone();
-
-    let incidents = storage.read().await.find_incidents();
-
-    Ok(incidents.into())
-}
-
-async fn handle_get_incident(Path(incident_id): Path<u32>, State(state): State<Arc<AppState>>) -> Result<Json<IncidentItem>, ServerErr> {
-
-    let storage = state.storage.clone();
-
-    let incident_result = storage.read().await.get_incident(incident_id);
-
-    if let Some(result) = incident_result {
-        return Ok(result.into())
-    }
-
-    Err(ServerErr::not_found("Could not find incident"))
-}
