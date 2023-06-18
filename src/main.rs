@@ -170,7 +170,7 @@ fn handle_cli_failure(cli_result: Result<(), Error>) {
 fn build_args() -> clap::Command {
 
     Command::new("Network watchdog")
-        .version("0.2.0")
+        .version("0.3.0")
         .about("Detect network incidents accross regions")
         .arg_required_else_help(true)
         .subcommand(Command::new("init")
