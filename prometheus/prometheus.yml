@@ -1,0 +1,20 @@
+# Configuration example for Prometheus with a remote write on Scaleway Cockpit.
+# Replace the underscore values (_) with domains & credentials.
+
+global:
+  scrape_interval: 60s
+  evaluation_interval: 60s
+
+remote_write:
+  - url: https://metrics.cockpit.fr-par.scw.cloud/api/v1/push
+    headers:
+      "X-Token": "_"
+
+scrape_configs:
+  - job_name: "watchdog"
+    metrics_path: "/api/v1/exporter"
+    authorization:
+      type: "Bearer"
+      credentials: "_"
+    static_configs:
+      - targets: ["_:3030"]
