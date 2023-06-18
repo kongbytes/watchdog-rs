@@ -148,7 +148,7 @@ impl MemoryStorage {
         self.group_storage.get(&group_key)
     }
 
-    pub fn find_metrics(&self) -> Vec<FullMetric> {
+    pub fn collect_test_metrics(&self) -> Vec<FullMetric> {
 
         let mut metrics: Vec<FullMetric> = vec![];
         for (group_name, group_status) in &self.group_storage {
@@ -173,6 +173,28 @@ impl MemoryStorage {
                     metric: group_metric.metric
                 });
             }
+        }
+
+        metrics
+    }
+
+    pub fn collect_region_metrics(&self) -> Vec<FullMetric> {
+
+        let mut metrics: Vec<FullMetric> = vec![];
+        for (region_key, region_value) in &self.region_storage {
+
+            metrics.push(FullMetric {
+                name: "region".to_string(),
+                labels: HashMap::from([
+                    ("region_name".to_string(), region_key.clone())
+                ]),
+                metric: match region_value.status {
+                    RegionState::Up => 3f32,
+                    RegionState::Down => 0f32,
+                    RegionState::Initial => 1f32,
+                    RegionState::Warn => 2f32,
+                }
+            });
         }
 
         metrics
