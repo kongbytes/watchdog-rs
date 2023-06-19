@@ -12,6 +12,8 @@ use cli::alerting;
 use crate::cli::{incident, status, init};
 use crate::common::error::Error;
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 #[tokio::main]
 async fn main() {
 
@@ -186,7 +188,7 @@ fn handle_cli_failure(cli_result: Result<(), Error>) {
 fn build_args() -> clap::Command {
 
     Command::new("Network watchdog")
-        .version("0.3.0")
+        .version(VERSION)
         .about("Detect network incidents accross regions")
         .arg_required_else_help(true)
         .subcommand(Command::new("init")
