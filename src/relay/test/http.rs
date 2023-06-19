@@ -1,8 +1,9 @@
-use std::str;
+use std::{str, collections::HashMap};
+use tokio::time::Instant;
 
 use reqwest::Client;
 
-use crate::{common::error::Error, relay::model::TestResult};
+use crate::{common::error::Error, relay::model::{TestResult, ResultCategory}};
 
 pub struct HttpTest {
     client: Client
@@ -30,24 +31,40 @@ impl HttpTest {
             Some(domain) => {
 
                 let url = format!("http://{}", domain);
-                let request_result = self.client.get(url)
+                let builder = self.client.get(url)
                     .header("user-agent", "watchdog-relay")
-                    .header("cache-control", "no-store")
-                    .send()
-                    .await;
+                    .header("cache-control", "no-store");
+
+                // Measure the time between the request sent out time and the first byte
+                // received time (not 100% accurate - but still reasonable workaround)
+                let latency_chrono = Instant::now();
+                let request_result = builder.send().await;
+                let duration = latency_chrono.elapsed();
 
                 match request_result {
                     Ok(response) => {
 
                         let http_status = &response.status();
-                        if http_status.is_client_error() || http_status.is_server_error() {
-                            return Ok(TestResult::warning(domain));
-                        }
 
-                        return Ok(TestResult::success(domain));
+                        let category = if http_status.is_client_error() || http_status.is_server_error() {
+                            ResultCategory::Warning
+                        } else {
+                            ResultCategory::Success
+                        };
+
+                        let duration_ms: f32 = duration.as_millis() as f32;
+
+                        let metrics: HashMap<String, f32> = HashMap::from([
+                            ("http_latency".to_string(), duration_ms)
+                        ]);
+
+                        return Ok(TestResult::build(domain, category, Some(metrics)));
 
                     },
-                    Err(_) => Ok(TestResult::fail(domain))
+                    Err(_err) => {
+                        // TODO Error lost (DNS failure, ...)
+                        Ok(TestResult::fail(domain))
+                    }
                 }
             },
             None => {

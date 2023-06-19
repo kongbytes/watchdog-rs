@@ -40,6 +40,10 @@ pub async fn launch(base_url: String, token: String, region_name: String) -> Res
             
             let mut group_results: Vec<GroupResultInput> = vec![];
             for group in &region_config.groups {
+
+                // Each monitoring group in a region has multiple tests (ping, http, ...) to ensure
+                // that the group is properly working. A group is working only if ALL tests are working
+                // and can have warnings.
     
                 let mut is_group_working = true;
                 let mut has_group_warnings: bool = false;
@@ -55,7 +59,8 @@ pub async fn launch(base_url: String, token: String, region_name: String) -> Res
                     match test_result {
                         Ok(test) => {
 
-                            if test.result == ResultCategory::Success {
+                            if test.result == ResultCategory::Fail {
+                                error_message = Some("Test failed".to_string());
                                 is_group_working = false;
                             }
                             else if test.result == ResultCategory::Warning {
@@ -98,7 +103,7 @@ pub async fn launch(base_url: String, token: String, region_name: String) -> Res
 
                     if !last_update.is_empty() {
                         region_config = api.fetch_region_conf().await.unwrap();
-                        println!("Relay config reloaded");
+                        println!("Relay config reloaded - version {}", last_update);
                     }
 
                     last_update = watchdog_update;

@@ -55,24 +55,6 @@ pub struct TestResult {
 }
 
 impl TestResult {
-    
-    pub fn success<M>(target_name: M) -> TestResult where M: Into<String> {
-
-        TestResult {
-            target: target_name.into(),
-            result: ResultCategory::Success,
-            metrics: None
-        }
-    }
-
-    pub fn warning<M>(target_name: M) -> TestResult where M: Into<String> {
-
-        TestResult {
-            target: target_name.into(),
-            result: ResultCategory::Warning,
-            metrics: None
-        }
-    }
 
     pub fn fail<M>(target_name: M) -> TestResult where M: Into<String> {
 

@@ -1,4 +1,4 @@
-use std::fs;
+use tokio::fs;
 use std::convert::TryFrom;
 
 use serde::{Deserialize, Serialize};
@@ -22,23 +22,32 @@ pub struct ServerConf {
 // accross watchdog services, except for the init CLI (see below).
 
 #[derive(Deserialize, Serialize)]
+pub struct AlerterConfigInput {
+    pub name: String,
+    pub medium: String,
+    pub chat_env: Option<String>,
+    pub token_env: Option<String>,
+    pub recipients_env: Option<String>
+}
+
+#[derive(Deserialize, Serialize)]
 pub struct GroupConfigInput {
     pub name: String,
-    pub threshold: u64,
-    pub mediums: String,
+    pub fail_threshold: u64,
     pub tests: Vec<String>
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct RegionConfigInput {
     pub name: String,
-    pub interval: String,
-    pub threshold: u64,
+    pub send_interval: String,
+    pub miss_threshold: u64,
     pub groups: Vec<GroupConfigInput>
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct ConfigInput {
+    pub alerters: Vec<AlerterConfigInput>,
     pub regions: Vec<RegionConfigInput>
 }
 
@@ -48,7 +57,6 @@ pub struct ConfigInput {
 pub struct GroupConfig {
     pub name: String,
     pub threshold_ms: u64,
-    pub mediums: Vec<String>,
     pub tests: Vec<String>
 }
 
@@ -61,16 +69,26 @@ pub struct RegionConfig {
 }
 
 #[derive(Deserialize,Serialize)]
+pub struct AlertConfig {
+    pub name: String,
+    pub medium: String,
+    pub chat_env: Option<String>,
+    pub token_env: Option<String>,
+    pub recipients_env: Option<String>
+}
+
+#[derive(Deserialize,Serialize)]
 pub struct Config {
     pub version: String,
+    pub alerters: Vec<AlertConfig>,
     pub regions: Vec<RegionConfig>
 }
 
 impl Config {
 
-    pub fn new(config_path: &str) -> Result<Config, Error> {
+    pub async fn new(config_path: &str) -> Result<Config, Error> {
 
-        let contents = fs::read_to_string(config_path).map_err(|err| Error::new("Could not read configuration file", err))?;
+        let contents = fs::read_to_string(config_path).await.map_err(|err| Error::new("Could not read configuration file", err))?;
         let parsed_yaml: ConfigInput = serde_yaml::from_str(&contents).map_err(|err| Error::new("Could not parse YAML", err))?;
 
         Config::try_from(parsed_yaml).map_err(|err| Error::new("Failed to parse config", err))
@@ -79,20 +97,6 @@ impl Config {
     pub fn export_region(&self, region_name: &str) -> Option<&RegionConfig> {
 
         self.regions.iter().find(|region| region.name.eq(region_name))
-    }
-
-    pub fn has_medium(&self, medium_key: &str) -> bool {
-
-        for region in self.regions.iter() {
-            for group in region.groups.iter() {
-
-                if group.mediums.iter().any(|medium| medium == medium_key) {
-                    return true;
-                }
-            }
-        }
-
-        false
     }
 
 }
@@ -106,17 +110,14 @@ impl TryFrom<ConfigInput> for Config{
         let mut regions: Vec<RegionConfig> = vec![];
         for region_input in input.regions.iter() {
 
-            let region_interval_ms = parse_to_milliseconds(&region_input.interval)?;
+            let region_interval_ms = parse_to_milliseconds(&region_input.send_interval)?;
 
             let mut groups: Vec<GroupConfig> = vec![];
             for group_input in region_input.groups.iter() {
 
                 let group = GroupConfig {
                     name: String::from(&group_input.name),
-                    threshold_ms: region_interval_ms * group_input.threshold + 1000,
-                    mediums: group_input.mediums.split(',')
-                        .map(String::from)
-                        .collect::<Vec<String>>(),
+                    threshold_ms: region_interval_ms * group_input.fail_threshold + 1000,
                     tests: group_input.tests.clone()
                 };
                 groups.push(group);
@@ -127,15 +128,28 @@ impl TryFrom<ConfigInput> for Config{
                 interval_ms: region_interval_ms,
                 // We add 1000 to let the network the network request be processed
                 // after the interval multiple
-                threshold_ms: region_interval_ms * region_input.threshold + 1000,
+                threshold_ms: region_interval_ms * region_input.miss_threshold + 1000,
                 groups
             };
             regions.push(region);
         }
 
+        let alerters = input.alerters.into_iter().map(|alerter_input| {
+
+            AlertConfig {
+                name: alerter_input.name,
+                medium: alerter_input.medium,
+                chat_env: alerter_input.chat_env,
+                token_env: alerter_input.token_env,
+                recipients_env: alerter_input.recipients_env
+            }
+
+        }).collect();
+
         Ok(Config {
             // TODO Better format
             version: chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+            alerters,
             regions
         })
     }

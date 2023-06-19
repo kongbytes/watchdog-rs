@@ -6,13 +6,13 @@ use axum::{
     http::StatusCode,
     middleware::{from_fn, from_fn_with_state},
     Router,
-    routing::get
+    routing::{get, post}
 };
 use tokio::{signal, task, sync::RwLock};
 use tokio_util::sync::CancellationToken;
 use tower::{BoxError, ServiceBuilder};
 
-use crate::{common::error::Error, server::middleware::{check_authorization, log_request}};
+use crate::{common::error::Error, server::{middleware::{check_authorization, log_request}, alert::manager::AlertManager}};
 use crate::server::config::Config;
 use crate::server::storage::{MemoryStorage, Storage};
 use crate::server::scheduler::launch_scheduler;
@@ -25,25 +25,25 @@ pub const DEFAULT_ADDRESS: &str = "127.0.0.1";
 
 pub struct AppState {
     pub storage: Storage,
-    pub config: Arc<Config>
+    pub config: Arc<Config>,
+    pub alert: Arc<AlertManager>
 }
 
 pub async fn launch(server_conf: ServerConf) -> Result<(), Error> {
 
     let storage = MemoryStorage::new();
 
-    let base_config = Config::new(&server_conf.config_path)?;
+    let config = Arc::new(
+        Config::new(&server_conf.config_path).await?
+    );
 
-    if base_config.has_medium("telegram") && (server_conf.telegram_chat.is_none() || server_conf.telegram_token.is_none()) {
-        let error_message = "Current configuration is using telegram medium, but missing environment variables (TELEGRAM_CHAT/TELEGRAM_TOKEN)".to_string();
-        return Err(Error::basic(error_message));
-    }
-
-    let config = Arc::new(base_config);
+    let alert_manager = AlertManager::try_from_config(&config.alerters)?;
+    let shared_alert = Arc::new(alert_manager);
 
     let app_state = Arc::new(AppState {
         storage: storage.clone(),
         config: config.clone(),
+        alert: shared_alert.clone()
     });
 
     let shared_server_conf = Arc::new(server_conf);
@@ -100,6 +100,10 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), Error> {
             "/api/v1/exporter",
             get(handle_prometheus_metrics)
         )
+        .route(
+            "/api/v1/alerting/test",
+            post(handle_trigger_alert_test)
+        )
         .fallback(handle_not_found)
         .route_layer(from_fn_with_state(shared_server_conf.clone(), check_authorization))
         .layer(middleware)
@@ -125,6 +129,7 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), Error> {
 
     let scheduler_conf = config.clone();
     let scheduler_storage = storage.clone();
+    let scheduler_alert = shared_alert.clone();
     let scheduler_handle = task::spawn(async move {
         
         println!(" ✓ Watchdog network scheduler is UP");
@@ -133,7 +138,7 @@ pub async fn launch(server_conf: ServerConf) -> Result<(), Error> {
         println!("Use the 'relay --region name' command");
         println!();
     
-        launch_scheduler(cancel_token_scheduler, scheduler_conf, scheduler_storage, &shared_server_conf.clone()).await;
+        launch_scheduler(cancel_token_scheduler, scheduler_conf, scheduler_storage, scheduler_alert).await;
 
     });
 

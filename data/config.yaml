@@ -1,43 +1,48 @@
+alerters:
+  - name: telegram_default
+    medium: telegram
+    chat_env: TELEGRAM_CHAT
+    token_env: TELEGRAM_TOKEN
+  - name: sms
+    medium: spryng
+    recipients_env: SPRYNG_RECIPIENTS
+    token_env: SPRYNG_TOKEN
+
 regions:
   - name: region-north
-    interval: 5s
-    threshold: 3
+    send_interval: 5s
+    miss_threshold: 3
     groups:
       - name: default
-        threshold: 4
-        mediums: telegram
+        fail_threshold: 4
         tests:
           - ping 1.1.1.1
   - name: region-west
-    interval: 5s
-    threshold: 3
+    send_interval: 5s
+    miss_threshold: 3
     groups:
       - name: default
-        threshold: 4
-        mediums: telegram
+        fail_threshold: 4
         tests:
-          - http example.org
+          - http kongbytes.io
   - name: region-south
-    interval: 5s
-    threshold: 2
+    send_interval: 5s
+    miss_threshold: 2
     groups:
       - name: egress
-        threshold: 2
-        mediums: telegram
+        fail_threshold: 2
         tests:
           - ping 1.1.1.1
-          - dns example.org
-          - http example.org
+          - dns kongbytes.io
+          - http kongbytes.io
       - name: bars
-        mediums: telegram
-        threshold: 3
+        fail_threshold: 3
         tests:
           - ping 192.168.1.1
           - ping 192.168.2.20
           - ping 1.1.1.1
       - name: other
-        mediums: telegram
-        threshold: 5
+        fail_threshold: 5
         tests:
           - ping 192.168.1.50
           - ping 1.1.1.1

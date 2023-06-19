@@ -7,11 +7,11 @@ use std::env;
 use std::process;
 
 use clap::{Arg, Command};
+use cli::alerting;
 
 use crate::cli::{incident, status, init};
 use crate::common::error::Error;
 
-// TODO Should not launch Tokio for CLI
 #[tokio::main]
 async fn main() {
 
@@ -126,6 +126,22 @@ async fn main() {
             }
 
         },
+        Some(("alerting", alerting_matches)) => {
+
+            let (base_url, token) = extract_watchdog_env_or_fail();
+
+            match alerting_matches.subcommand() {
+                Some(("test", _)) => {
+                    let cli_result = alerting::test_alerting(&base_url, &token).await;
+                    handle_cli_failure(cli_result);
+                },
+                _ => {
+                    eprintln!("Could not find command to launch");
+                    process::exit(1)
+                }
+            }
+
+        },
         _ => {
             eprintln!("Could not find command to launch");
             process::exit(1)
@@ -218,6 +234,14 @@ fn build_args() -> clap::Command {
                     .about("Get & inspect an incident")
                     .allow_external_subcommands(true)
                     .arg_required_else_help(true)
+            )
+        )
+        .subcommand(Command::new("alerting")
+            .about("Manage alerts & mediums")
+            .arg_required_else_help(true)
+            .subcommand(
+                Command::new("test")
+                    .about("Test all alerting mediums")
             )
         )
 }

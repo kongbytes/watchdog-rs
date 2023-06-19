@@ -12,18 +12,18 @@ pub struct Error {
 
 impl Error {
 
-    pub fn new(message: &'static str, details: impl Display) -> Self {
+    pub fn new<M>(message: M, details: impl Display) -> Self where M: Into<String> {
 
         Error {
-            message: message.to_string(),
+            message: message.into(),
             details: Some(details.to_string())
         }
     }
 
-    pub fn basic(message: String) -> Self {
+    pub fn basic<M>(message: M) -> Self where M: Into<String> {
 
         Error {
-            message,
+            message: message.into(),
             details: None
         }
     }

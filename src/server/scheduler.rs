@@ -6,17 +6,17 @@ use chrono::{Duration as ChronoDuration, Utc};
 use tokio_util::sync::CancellationToken;
 
 use crate::server::storage::{RegionStatus, GroupStatus, GroupState, RegionState};
-use crate::server::alert::{self, TelegramOptions};
 use crate::server::storage::Storage;
 use crate::server::config::Config;
 
-use super::config::ServerConf;
+use super::alert::manager::AlertManager;
+use super::config::{RegionConfig, GroupConfig};
 
 // TODO Should review defaults
 const DEFAULT_REGION_MS: i64 = 10 * 1000;
 const DEFAULT_GROUP_MS: i64 = 10 * 1000;
 
-pub async fn launch_scheduler(cancel_token: CancellationToken, conf: Arc<Config>, storage: Storage, server_conf: &ServerConf) {
+pub async fn launch_scheduler(cancel_token: CancellationToken, conf: Arc<Config>, storage: Storage, manager: Arc<AlertManager>) {
 
     loop {
         
@@ -28,43 +28,7 @@ pub async fn launch_scheduler(cancel_token: CancellationToken, conf: Arc<Config>
                 region_status = scheduler_read.get_region_status(&region.name).map(|status| (*status).clone());
             }
 
-            if let Some(status) = region_status {
-
-                match status.status {
-                    RegionState::Down => (),
-                    RegionState::Initial => (),
-                    _ => {
-
-                        let region_ms: i64 = region.threshold_ms.try_into().unwrap_or(DEFAULT_REGION_MS);
-                        if Utc::now().signed_duration_since(status.updated_at) > ChronoDuration::milliseconds(region_ms) {
-                            
-                            println!("INCIDENT ON REGION {}", region.name);
-                            {
-                                let mut sched_store_mut = storage.write().await;
-                                sched_store_mut.trigger_region_incident(&region.name).unwrap_or_else(|err| {
-                                    eprintln!("Failed to trigger incident in storage: {}", err);
-                                    eprintln!("This error will be ignored but can cause unstable storage");
-                                });
-                            }
-
-                            let message = format!("Network DOWN on region {}", &region.name);
-                            if let (Some(telegram_token), Some(telegram_chat)) = (&server_conf.telegram_token, &server_conf.telegram_chat) {
-                                
-                                let options = TelegramOptions {
-                                    disable_notifications: false
-                                };
-                                alert::alert_telegram(telegram_token, telegram_chat, &message, options).await.unwrap_or_else(|err| {
-                                    eprintln!("Failed to trigger incident notification: {}", err);
-                                });
-                            }
-                            else {
-                                alert::display_warning(&message);
-                            }
-                        }
-
-                    }
-                };
-            }
+            trigger_region_incident(region, region_status, storage.clone(), manager.clone()).await;
 
             for group in region.groups.iter() {
 
@@ -74,40 +38,7 @@ pub async fn launch_scheduler(cancel_token: CancellationToken, conf: Arc<Config>
                     group_status = scheduler_read.get_group_status(&region.name, &group.name).map(|status| (*status).clone());
                 }
 
-                if let Some(status) = group_status {
-
-                    match status.status {
-                        GroupState::Up | GroupState::Initial | GroupState::Warn | GroupState::Incident => (),
-                        GroupState::Down => {
-
-                            let group_ms: i64 = group.threshold_ms.try_into().unwrap_or(DEFAULT_GROUP_MS);
-                            if Utc::now().signed_duration_since(status.updated_at) > ChronoDuration::milliseconds(group_ms) {
-                                
-                                println!("INCIDENT ON GROUP {}.{}", region.name, group.name);
-                                {
-                                    // TODO Should trigger incident in logs
-                                    let mut sched_store_mut = storage.write().await;
-                                    sched_store_mut.trigger_group_incident(&region.name, &group.name).unwrap_or_else(|err| {
-                                        eprintln!("Failed to trigger incident in storage: {}", err);
-                                        eprintln!("This error will be ignored but can cause unstable storage");
-                                    });
-                                }
-
-                                // TODO What if wrong telegram conf ?
-                                if let (Some(telegram_token), Some(telegram_chat)) = (&server_conf.telegram_token, &server_conf.telegram_chat) {
-                                    let message = format!("Network DOWN on group {}.{}", &region.name, &group.name);
-                                    let options = TelegramOptions {
-                                        disable_notifications: false
-                                    };
-                                    alert::alert_telegram(telegram_token, telegram_chat, &message, options).await.unwrap_or_else(|err| {
-                                        eprintln!("Failed to trigger incident notification: {}", err);
-                                    });
-                                }
-                            }
-
-                        }
-                    };
-                }
+                trigger_group_incident(region, group, group_status, storage.clone(), manager.clone()).await;
             }
         }
 
@@ -125,5 +56,69 @@ pub async fn launch_scheduler(cancel_token: CancellationToken, conf: Arc<Config>
         if cancel_loop {
             break;
         }
+    }
+}
+
+
+async fn trigger_region_incident(region: &RegionConfig, region_status: Option<RegionStatus>, storage: Storage, manager: Arc<AlertManager>) {
+
+    if let Some(status) = region_status {
+
+        match status.status {
+            RegionState::Down | RegionState::Initial => (),
+            RegionState::Up | RegionState::Warn => {
+
+                let region_ms: i64 = region.threshold_ms.try_into().unwrap_or(DEFAULT_REGION_MS);
+                if Utc::now().signed_duration_since(status.updated_at) > ChronoDuration::milliseconds(region_ms) {
+                    
+                    println!("INCIDENT ON REGION {}", region.name);
+                    {
+                        let mut sched_store_mut = storage.write().await;
+                        sched_store_mut.trigger_region_incident(&region.name).unwrap_or_else(|err| {
+                            eprintln!("Failed to trigger incident in storage: {}", err);
+                            eprintln!("This error will be ignored but can cause unstable storage");
+                        });
+                    }
+
+                    let message = format!("Network DOWN on region {}", &region.name);
+                    manager.alert(None, &message).await.unwrap_or_else(|err| {
+                        eprintln!("Error while triggering alert: {}", err);
+                    });
+                }
+
+            }
+        };
+    }
+}
+
+async fn trigger_group_incident(region: &RegionConfig, group: &GroupConfig, group_status: Option<GroupStatus>, storage: Storage, manager: Arc<AlertManager>) {
+
+    if let Some(status) = group_status {
+
+        match status.status {
+            GroupState::Up | GroupState::Initial | GroupState::Warn | GroupState::Incident => (),
+            GroupState::Down => {
+
+                let group_ms: i64 = group.threshold_ms.try_into().unwrap_or(DEFAULT_GROUP_MS);
+                if Utc::now().signed_duration_since(status.updated_at) > ChronoDuration::milliseconds(group_ms) {
+                    
+                    println!("INCIDENT ON GROUP {}.{}", region.name, group.name);
+                    {
+                        // TODO Should trigger incident in logs
+                        let mut sched_store_mut = storage.write().await;
+                        sched_store_mut.trigger_group_incident(&region.name, &group.name).unwrap_or_else(|err| {
+                            eprintln!("Failed to trigger incident in storage: {}", err);
+                            eprintln!("This error will be ignored but can cause unstable storage");
+                        });
+                    }
+
+                    let message = format!("Network DOWN on group {}.{}", &region.name, &group.name);
+                    manager.alert(None, &message).await.unwrap_or_else(|err| {
+                        eprintln!("Error while triggering alert: {}", err);
+                    });
+                }
+
+            }
+        };
     }
 }

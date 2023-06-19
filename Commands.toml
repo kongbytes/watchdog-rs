@@ -10,11 +10,17 @@ server = { cmd = "cargo run server -c ./data/config.yaml", load_dotenv = true }
 # Launch the watchdog relay for "region-north"
 relay-north = { cmd = "cargo run relay --region region-north", load_dotenv = true }
 
-# Launch the watchdog incident CLI
+# Launch the watchdog relay for "region-west"
+relay-west = { cmd = "cargo run relay --region region-west", load_dotenv = true }
+
+# Launch the watchdog status CLI
 status = { cmd = "cargo run status", load_dotenv = true }
 
 # Launch the watchdog incident CLI
 incident-ls = { cmd = "cargo run incident ls", load_dotenv = true }
+
+# Launch the watchdog alerting test CLI
+alerting-test = { cmd = "cargo run alerting test", load_dotenv = true }
 
 # RELEASE COMMANDS
 # ----------------

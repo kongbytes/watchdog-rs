@@ -52,14 +52,38 @@ mod tests {
     async fn should_request_http_domain() {
         
         let runner = TestRunner::new();
-        assert_eq!(runner.execute_test("http kongbytes.io").await, Ok(TestResult::success("kongbytes.io")));
+        let test_result = runner.execute_test("http kongbytes.io").await;
+
+        assert_eq!(test_result.is_ok(), true);
+        let result = test_result.unwrap();
+
+        assert_eq!(result.target, "kongbytes.io");
+        assert_eq!(matches!(result.result, ResultCategory::Success), true);
+        
+        assert_eq!(result.metrics.is_some(), true);
+        let metrics = result.metrics.unwrap();
+
+        assert_eq!(metrics.len(), 1);
+        assert_eq!(metrics.get("http_latency").unwrap() > &0.00, true);
     }
 
     #[tokio::test]
     async fn should_request_http_path() {
-        
+
         let runner = TestRunner::new();
-        assert_eq!(runner.execute_test("http github.com/kongbytes").await, Ok(TestResult::success("github.com/kongbytes")));
+        let test_result = runner.execute_test("http github.com/kongbytes").await;
+
+        assert_eq!(test_result.is_ok(), true);
+        let result = test_result.unwrap();
+
+        assert_eq!(result.target, "github.com/kongbytes");
+        assert_eq!(matches!(result.result, ResultCategory::Success), true);
+        
+        assert_eq!(result.metrics.is_some(), true);
+        let metrics = result.metrics.unwrap();
+
+        assert_eq!(metrics.len(), 1);
+        assert_eq!(metrics.get("http_latency").unwrap() > &0.00, true);
     }
 
     #[tokio::test]
@@ -71,9 +95,21 @@ mod tests {
 
     #[tokio::test]
     async fn should_fail_http_unknown_page() {
-        
+
         let runner = TestRunner::new();
-        assert_eq!(runner.execute_test("http kongbytes.io/unknown.html").await, Ok(TestResult::warning("kongbytes.io/unknown.html")));
+        let test_result = runner.execute_test("http kongbytes.io/unknown.html").await;
+
+        assert_eq!(test_result.is_ok(), true);
+        let result = test_result.unwrap();
+
+        assert_eq!(result.target, "kongbytes.io/unknown.html");
+        assert_eq!(matches!(result.result, ResultCategory::Warning), true);
+        
+        assert_eq!(result.metrics.is_some(), true);
+        let metrics = result.metrics.unwrap();
+
+        assert_eq!(metrics.len(), 1);
+        assert_eq!(metrics.get("http_latency").unwrap() > &0.00, true);
     }
 
     #[tokio::test]

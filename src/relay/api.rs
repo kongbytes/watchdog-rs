@@ -36,6 +36,7 @@ impl ServerApi {
         let http_response = self.client.get(&self.config_route)
             .header("Content-Type", "application/json")
             .header("Authorization", &self.authorization_header)
+            .header("Accept", "application/json")
             .send()
             .await
             .map_err(|err| Error::new("Could not fetch configuration from server", err))?;
@@ -61,6 +62,7 @@ impl ServerApi {
         let response = self.client.put(&self.update_route)
             .header("Content-Type", "application/json")
             .header("Authorization", &self.authorization_header)
+            .header("Accept", "application/json")
             .body(json_state)
             .send()
             .await

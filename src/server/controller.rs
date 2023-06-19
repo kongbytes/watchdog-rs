@@ -166,3 +166,20 @@ pub async fn handle_get_incident(Path(incident_id): Path<u32>, State(state): Sta
 
     Err(ServerErr::not_found("Could not find incident"))
 }
+
+pub async fn handle_trigger_alert_test(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+
+    let alert_manager = state.alert.clone();
+
+    let trigger_result = alert_manager.trigger_all_test_alerts().await;
+
+    match trigger_result {
+        Ok(_) => Json(json!({
+            "alerts_sent": true        
+        })),
+        Err(err) => Json(json!({
+            "alerts_sent": false,
+            "error": err.to_string()
+        }))
+    }
+}
