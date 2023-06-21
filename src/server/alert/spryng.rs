@@ -39,7 +39,7 @@ impl AlertMedium for SpryngAlerter {
     fn build_request(&self, message: &str) -> RequestBuilder {
 
         Client::new()
-            .post("https://rest.spryngsms.com/v1/messages'")
+            .post("https://rest.spryngsms.com/v1/messages")
             .header("Accept", "application/json")
             .header("Authorization", format!("Bearer {}", self.token))
             .header("Content-Type", "application/json")
