@@ -4,7 +4,7 @@
 # This script helps with the release process on Github (glibc builds for Linux)
 
 mkdir -p ./builds
-rm ./builds/*
+rm -rf ./builds/*
 
 CLI_VERSION=$(/usr/bin/cat Cargo.toml | egrep "version = (.*)" | egrep -o --color=never "([0-9]+\.?){3}" | head -n 1)
 echo "Releasing v$CLI_VERSION for musl & libc x86_64 targets"
