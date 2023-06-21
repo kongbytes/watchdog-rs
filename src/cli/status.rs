@@ -1,5 +1,5 @@
 use chrono::prelude::*;
-use ansi_term::Colour;
+use ansi_term::{Colour, Style};
 
 use crate::common::error::Error;
 use crate::server::storage::RegionSummary;
@@ -9,7 +9,12 @@ pub async fn display_status(base_url: &str, token: &str) -> Result<(), Error> {
 
     let region_summary: RegionSummary = api_get(base_url, token, "api/v1/analytics").await?;
 
+    let bold = Style::new().bold();
+
     println!();
+    println!("{}            {}               {}", bold.paint("Region & groups"), bold.paint("Status"), bold.paint("Last update (success)"));
+    println!();
+
     for region_item in region_summary.regions.iter() {
 
         let formatted_date: String = match &(region_item.last_update).parse::<DateTime<Utc>>() {
@@ -42,7 +47,7 @@ pub async fn display_status(base_url: &str, token: &str) -> Result<(), Error> {
                 "initial" => format!("{}  INITIAL", Colour::Blue.paint("◼")),
                 "up" => format!("{}  UP", Colour::Green.paint("◼")),
                 "warn" => format!("{} WARN", Colour::Yellow.paint("◼")),
-                "incident" => format!("{}  INCIDENT", Colour::Yellow.paint("◼")),
+                "incident" => format!("{}  INCIDENT", Colour::Red.paint("◼")),
                 "down" => format!("{}  DOWN", Colour::Red.paint("◼")),
                 _ => format!("{}  UNKNOWN", Colour::Purple.paint("◼")) 
             };
