@@ -32,5 +32,5 @@ serde_json = "1.0"
 # CLI & utilities
 clap = "4.2"
 reqwest = { version = "0.11", features = ["rustls-tls", "json"], default-features = false }
-chrono = "0.4"
+chrono = "0.4.26"
 ansi_term = "0.12"
