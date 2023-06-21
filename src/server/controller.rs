@@ -112,7 +112,7 @@ pub async fn handle_region_update(Path(region_name): Path<String>, State(state):
                 });
             }
 
-            write_lock.refresh_group(&region_name, &group.name, group_state, metrics).unwrap_or_else(|err| {
+            write_lock.refresh_group(&region_name, &group.name, group_state, metrics, group.error_message).unwrap_or_else(|err| {
                 eprintln!("Could not refresh group, can cause unstable storage: {}", err);
             });
         }
@@ -121,7 +121,8 @@ pub async fn handle_region_update(Path(region_name): Path<String>, State(state):
 
         if let Some(status) = region_status {
 
-            // We already had an incident
+            // We already had an incident and the region was therefore marked as DOWN.
+            // Since we now have a 'heartbeat' on the region level, the incident can be resolved
             if let RegionState::Down = status.status {
                 println!("INCIDENT RESOLVED ON REGION {}", region_name);
             }

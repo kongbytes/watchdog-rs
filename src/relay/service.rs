@@ -52,15 +52,16 @@ pub async fn launch(base_url: String, token: String, region_name: String) -> Res
 
                 let mut group_metrics: Vec<MetricInput> = vec![];
 
-                for test in &group.tests {
+                for test_cmd in &group.tests {
 
-                    let test_result = runner.execute_test(test).await;
+                    let test_result = runner.execute_test(test_cmd).await;
 
                     match test_result {
                         Ok(test) => {
 
                             if test.result == ResultCategory::Fail {
-                                error_message = Some("Test failed".to_string());
+                                // TODO We only register the last fail
+                                error_message = Some(format!("test '{}' failed", test_cmd));
                                 is_group_working = false;
                             }
                             else if test.result == ResultCategory::Warning {

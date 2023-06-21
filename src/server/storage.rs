@@ -53,7 +53,8 @@ pub struct GroupMetrics {
 pub struct GroupStatus {
     pub status: GroupState,
     pub updated_at: DateTime<Utc>,
-    pub last_metrics: Vec<GroupMetrics>
+    pub last_metrics: Vec<GroupMetrics>,
+    pub last_error: Option<String>
 }
 
 pub struct IncidentRecord {
@@ -134,7 +135,8 @@ impl MemoryStorage {
         self.group_storage.insert(group_key, GroupStatus {
             status: GroupState::Initial,
             updated_at: Utc::now(),
-            last_metrics: vec![]
+            last_metrics: vec![],
+            last_error: None
         });
     }
 
@@ -285,7 +287,7 @@ impl MemoryStorage {
         });
     }
 
-    pub fn trigger_region_incident(&mut self, region: &str) -> Result<(), Error> {
+    pub fn trigger_region_incident(&mut self, region: &str, ms_threshold: i64) -> Result<(), Error> {
 
         // TODO Should track incident end
 
@@ -306,7 +308,8 @@ impl MemoryStorage {
             self.group_storage.insert(format!("{}.{}", region, impacted_group), GroupStatus {
                 status: GroupState::Incident,
                 updated_at: Utc::now(),
-                last_metrics: vec![]
+                last_metrics: vec![],
+                last_error: None
             });
         }
 
@@ -314,7 +317,7 @@ impl MemoryStorage {
             id: self.last_incident_id,
             message: format!("Region {} is DOWN", region),
             timestamp: Utc::now(),
-            error_message: Some("Region relay has not sent heartbeat in time (threshold exceeded)".to_string()),
+            error_message: Some(format!("Region relay has not sent heartbeat in time ({}ms threshold exceeded)", ms_threshold)),
             error_details: None
         });
         self.last_incident_id += 1;
@@ -322,11 +325,13 @@ impl MemoryStorage {
         Ok(())
     }
 
-    pub fn refresh_group(&mut self, region: &str, group: &str, status: GroupState, last_metrics: Vec<GroupMetrics>) -> Result<(), Error> {
+    pub fn refresh_group(&mut self, region: &str, group: &str, status: GroupState, last_metrics: Vec<GroupMetrics>, last_error: Option<String>) -> Result<(), Error> {
 
         let group_key = format!("{}.{}", region, group);
         let updated_at = match status {
             GroupState::Down => {
+                // A group marked as 'down' will not be updated, allowing to trigger an incident
+                // after X milliseconds without update on the DOWN group
                 let old_status = self.group_storage.get(&group_key).ok_or_else(|| Error::basic(format!("Could not find group storage {}", group_key)))?;
                 old_status.updated_at
             },
@@ -336,7 +341,8 @@ impl MemoryStorage {
         self.group_storage.insert(group_key, GroupStatus {
             status,
             updated_at,
-            last_metrics
+            last_metrics,
+            last_error
         });
 
         Ok(())
@@ -352,19 +358,23 @@ impl MemoryStorage {
         // The 'chrono UTC' type implements the 'Copy' trait and does not
         // require a clone() call, which simplifies ownership. 
         let updated_at = old_status.updated_at;
+
+        let last_error = old_status.clone().last_error;
         
         // Move to incident, this will avoid re-trigger alerts
         self.group_storage.insert(group_key, GroupStatus {
             status: GroupState::Incident,
             updated_at,
-            last_metrics: old_status.last_metrics.clone()
+            last_metrics: old_status.last_metrics.clone(),
+            last_error: last_error.clone()
         });
 
+        let error_message = format!("Triggered from group relay ({})", last_error.unwrap_or("-".into()));
         self.incidents.push(IncidentRecord {
             id: self.last_incident_id,
             message: format!("Group {}.{} is DOWN", region, group),
             timestamp: Utc::now(),
-            error_message: Some("Incident triggered at the group level".to_string()),
+            error_message: Some(error_message),
             error_details: None
         });
         self.last_incident_id += 1;

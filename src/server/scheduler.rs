@@ -28,7 +28,7 @@ pub async fn launch_scheduler(cancel_token: CancellationToken, conf: Arc<Config>
                 region_status = scheduler_read.get_region_status(&region.name).map(|status| (*status).clone());
             }
 
-            trigger_region_incident(region, region_status, storage.clone(), manager.clone()).await;
+            detect_region_incident(region, region_status, storage.clone(), manager.clone()).await;
 
             for group in region.groups.iter() {
 
@@ -38,7 +38,7 @@ pub async fn launch_scheduler(cancel_token: CancellationToken, conf: Arc<Config>
                     group_status = scheduler_read.get_group_status(&region.name, &group.name).map(|status| (*status).clone());
                 }
 
-                trigger_group_incident(region, group, group_status, storage.clone(), manager.clone()).await;
+                detect_group_incident(region, group, group_status, storage.clone(), manager.clone()).await;
             }
         }
 
@@ -60,7 +60,7 @@ pub async fn launch_scheduler(cancel_token: CancellationToken, conf: Arc<Config>
 }
 
 
-async fn trigger_region_incident(region: &RegionConfig, region_status: Option<RegionStatus>, storage: Storage, manager: Arc<AlertManager>) {
+async fn detect_region_incident(region: &RegionConfig, region_status: Option<RegionStatus>, storage: Storage, manager: Arc<AlertManager>) {
 
     if let Some(status) = region_status {
 
@@ -74,13 +74,13 @@ async fn trigger_region_incident(region: &RegionConfig, region_status: Option<Re
                     println!("INCIDENT ON REGION {}", region.name);
                     {
                         let mut sched_store_mut = storage.write().await;
-                        sched_store_mut.trigger_region_incident(&region.name).unwrap_or_else(|err| {
+                        sched_store_mut.trigger_region_incident(&region.name, region_ms).unwrap_or_else(|err| {
                             eprintln!("Failed to trigger incident in storage: {}", err);
                             eprintln!("This error will be ignored but can cause unstable storage");
                         });
                     }
 
-                    let message = format!("Network DOWN on region {}", &region.name);
+                    let message = format!("Region {} is DOWN (no heartbeat received from relay in {}ms)", &region.name, region_ms);
                     manager.alert(None, &message).await.unwrap_or_else(|err| {
                         eprintln!("Error while triggering alert: {}", err);
                     });
@@ -91,7 +91,7 @@ async fn trigger_region_incident(region: &RegionConfig, region_status: Option<Re
     }
 }
 
-async fn trigger_group_incident(region: &RegionConfig, group: &GroupConfig, group_status: Option<GroupStatus>, storage: Storage, manager: Arc<AlertManager>) {
+async fn detect_group_incident(region: &RegionConfig, group: &GroupConfig, group_status: Option<GroupStatus>, storage: Storage, manager: Arc<AlertManager>) {
 
     if let Some(status) = group_status {
 
@@ -112,7 +112,7 @@ async fn trigger_group_incident(region: &RegionConfig, group: &GroupConfig, grou
                         });
                     }
 
-                    let message = format!("Network DOWN on group {}.{}", &region.name, &group.name);
+                    let message = format!("Group {}.{} is DOWN ({})", &region.name, &group.name, status.last_error.unwrap_or("-".into()));
                     manager.alert(None, &message).await.unwrap_or_else(|err| {
                         eprintln!("Error while triggering alert: {}", err);
                     });
