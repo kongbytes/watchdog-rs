@@ -14,7 +14,7 @@ pub fn init_config() -> Result<(), Error> {
     println!(" - A region named \"region-south\" with range 10.50.0.0/22");
 
     let mut config = ConfigInput {
-        alerters: vec![],
+        alerters: Some(vec![]),
         regions: vec![]
     };
 
@@ -33,11 +33,11 @@ pub fn init_config() -> Result<(), Error> {
                     "dns example.org".to_string(),
                     "http example.org".to_string()
                 ],
-                fail_threshold: 4
+                fail_threshold: Some(4)
             }],
             name: region_name,
-            send_interval: "5s".to_string(),
-            miss_threshold: 3
+            send_interval: Some("5s".to_string()),
+            miss_threshold: Some(3)
         })
     }
 

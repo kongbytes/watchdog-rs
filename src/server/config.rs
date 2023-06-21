@@ -33,21 +33,21 @@ pub struct AlerterConfigInput {
 #[derive(Deserialize, Serialize)]
 pub struct GroupConfigInput {
     pub name: String,
-    pub fail_threshold: u64,
+    pub fail_threshold: Option<u64>,
     pub tests: Vec<String>
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct RegionConfigInput {
     pub name: String,
-    pub send_interval: String,
-    pub miss_threshold: u64,
+    pub send_interval: Option<String>,
+    pub miss_threshold: Option<u64>,
     pub groups: Vec<GroupConfigInput>
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct ConfigInput {
-    pub alerters: Vec<AlerterConfigInput>,
+    pub alerters: Option<Vec<AlerterConfigInput>>,
     pub regions: Vec<RegionConfigInput>
 }
 
@@ -110,41 +110,52 @@ impl TryFrom<ConfigInput> for Config{
         let mut regions: Vec<RegionConfig> = vec![];
         for region_input in input.regions.iter() {
 
-            let region_interval_ms = parse_to_milliseconds(&region_input.send_interval)?;
+            let human_readable_interval = match &region_input.send_interval {
+                Some(send_interval) => send_interval,
+                None => "10s"
+            };
+            let region_interval_ms = parse_to_milliseconds(human_readable_interval)?;
 
             let mut groups: Vec<GroupConfig> = vec![];
             for group_input in region_input.groups.iter() {
 
+                let group_fail_threshold = group_input.fail_threshold.unwrap_or(3);
                 let group = GroupConfig {
                     name: String::from(&group_input.name),
-                    threshold_ms: region_interval_ms * group_input.fail_threshold + 1000,
+                    threshold_ms: region_interval_ms * group_fail_threshold + 1000,
                     tests: group_input.tests.clone()
                 };
                 groups.push(group);
             }
 
+            let region_miss_threshold = region_input.miss_threshold.unwrap_or(3);
             let region = RegionConfig {
                 name: String::from(&region_input.name),
                 interval_ms: region_interval_ms,
                 // We add 1000 to let the network the network request be processed
                 // after the interval multiple
-                threshold_ms: region_interval_ms * region_input.miss_threshold + 1000,
+                threshold_ms: region_interval_ms * region_miss_threshold + 1000,
                 groups
             };
             regions.push(region);
         }
 
-        let alerters = input.alerters.into_iter().map(|alerter_input| {
+        let alerters = match input.alerters {
+            Some(alerters) => {
+                alerters.into_iter().map(|alerter_input| {
 
-            AlertConfig {
-                name: alerter_input.name,
-                medium: alerter_input.medium,
-                chat_env: alerter_input.chat_env,
-                token_env: alerter_input.token_env,
-                recipients_env: alerter_input.recipients_env
-            }
-
-        }).collect();
+                    AlertConfig {
+                        name: alerter_input.name,
+                        medium: alerter_input.medium,
+                        chat_env: alerter_input.chat_env,
+                        token_env: alerter_input.token_env,
+                        recipients_env: alerter_input.recipients_env
+                    }
+        
+                }).collect()
+            },
+            None => vec![]
+        };
 
         Ok(Config {
             // TODO Better format
