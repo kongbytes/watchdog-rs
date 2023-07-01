@@ -12,6 +12,7 @@ regions:
   - name: region-north
     send_interval: 5s
     miss_threshold: 3
+    kuma_url: https://status.kuma.example/api/push/xxx
     groups:
       - name: default
         fail_threshold: 4

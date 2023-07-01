@@ -39,6 +39,8 @@ pub async fn launch(base_url: String, token: String, region_name: String) -> Res
         loop {
             
             let mut group_results: Vec<GroupResultInput> = vec![];
+            let mut last_kuma_ping: Option<f32> = None;
+
             for group in &region_config.groups {
 
                 // Each monitoring group in a region has multiple tests (ping, http, ...) to ensure
@@ -69,6 +71,11 @@ pub async fn launch(base_url: String, token: String, region_name: String) -> Res
                             }
 
                             for (metric_key, metric_value) in test.metrics.unwrap_or_default() {
+
+                                if metric_key == "ping_rtt" {
+                                    last_kuma_ping = Some(metric_value);
+                                }
+
                                 group_metrics.push(MetricInput {
                                     name: metric_key,
                                     labels: HashMap::from([
@@ -98,7 +105,7 @@ pub async fn launch(base_url: String, token: String, region_name: String) -> Res
                 });
             }
             
-            let update_result = api.update_region_state(group_results, &last_update).await;
+            let update_result = api.update_region_state(&group_results, &last_update).await;
             match update_result {
                 Ok(Some(watchdog_update)) => {
 
@@ -114,6 +121,16 @@ pub async fn launch(base_url: String, token: String, region_name: String) -> Res
                     eprintln!("{}", update_err);
                 },
                 _ => {}
+            }
+
+            if let Some(kuma_url) = &region_config.kuma_url {
+
+                let total_groups = group_results.len();
+                let unstable_groups = group_results.iter().filter(|x| x.has_warnings || !x.working).count();
+
+                api.trigger_kuma_update(kuma_url, total_groups, unstable_groups, last_kuma_ping).await.unwrap_or_else(|err| {
+                    eprintln!("Error while triggering Kuma update: {}", err);
+                });
             }
 
             let mut cancel_loop = false;

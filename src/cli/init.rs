@@ -37,7 +37,8 @@ pub fn init_config() -> Result<(), Error> {
             }],
             name: region_name,
             send_interval: Some("5s".to_string()),
-            miss_threshold: Some(3)
+            miss_threshold: Some(3),
+            kuma_url: None
         })
     }
 

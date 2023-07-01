@@ -42,6 +42,7 @@ pub struct RegionConfigInput {
     pub name: String,
     pub send_interval: Option<String>,
     pub miss_threshold: Option<u64>,
+    pub kuma_url: Option<String>,
     pub groups: Vec<GroupConfigInput>
 }
 
@@ -65,6 +66,7 @@ pub struct RegionConfig {
     pub name: String,
     pub interval_ms: u64,
     pub threshold_ms: u64,
+    pub kuma_url: Option<String>,
     pub groups: Vec<GroupConfig>
 }
 
@@ -135,6 +137,7 @@ impl TryFrom<ConfigInput> for Config{
                 // We add 1000 to let the network the network request be processed
                 // after the interval multiple
                 threshold_ms: region_interval_ms * region_miss_threshold + 1000,
+                kuma_url: region_input.kuma_url.clone(),
                 groups
             };
             regions.push(region);

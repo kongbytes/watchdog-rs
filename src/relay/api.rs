@@ -54,7 +54,7 @@ impl ServerApi {
         serde_json::from_str::<RegionConfig>(&body).map_err(|err| Error::new("Failed to decode JSON region config", err))
     }
 
-    pub async fn update_region_state(&self, group_results: Vec<GroupResultInput>, last_update: &str) -> Result<Option<String>, Error> {
+    pub async fn update_region_state(&self, group_results: &Vec<GroupResultInput>, last_update: &str) -> Result<Option<String>, Error> {
 
         let json_state = serde_json::to_string(&group_results)
             .map_err(|err| Error::new("Could not parse region state to JSON", err))?;
@@ -78,6 +78,35 @@ impl ServerApi {
         }
 
         Ok(None)
+    }
+
+    pub async fn trigger_kuma_update(&self, kuma_url: &str, total_groups: usize, unstable_groups: usize, last_ping: Option<f32>) -> Result<(), Error> {
+
+        let message = if total_groups == unstable_groups {
+            format!("OK {} healthy", total_groups)
+        } else {
+            format!("WARN {} unstable", unstable_groups)
+        };
+
+        let mut kuma_full_url = format!("{}?status=up&msg={}", kuma_url, message);
+
+        if let Some(ping) = last_ping {
+            let ping_url = format!("&ping={}", ping);
+            kuma_full_url.push_str(&ping_url);
+        }
+
+        let http_response = self.client.get(kuma_full_url)
+            .send()
+            .await
+            .map_err(|err| Error::new("Could not fetch configuration from server", err))?;
+
+        if http_response.status() != 200 {
+            return Err(
+                Error::basic(format!("Expected 200 for Kuma update, found {}", http_response.status()))
+            );
+        }
+
+        Ok(())
     }
 
 }
